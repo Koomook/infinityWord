@@ -4,7 +4,7 @@ from konlpy.tag import Mecab
 from slackclient import SlackClient
 import logging
 import logging.handlers
-from ...utils.logger import FileLogger, MongoLogger
+from ..utils.logger import FileLogger, MongoLogger
 
 
 
@@ -12,11 +12,11 @@ class Processor(object):
 
     def __init__(self, name, logging_path):
         # Patterns & Lenghth limit
-        self.P_CHAPTER = '\n[제 ]*[\d]{1,3}[ ]*[장편막부]+ .{0,50}\n|\n[ ]*[\d]{1,3}[\. ]+.{0,50}\n|\n\n[가-힣]+\n\n|\n[ ]*[\d]{1,3}[ ]*\n|@ff'
+        self.P_CHAPTER = '\n[제 ]*[\d]{1,3}[ ]*[장편막부]+ .{0,50}\n|\n[ ]*[\d]{1,3}[\. ]+.{0,50}\n|\n\n[가-힣]+\n\n|\n[ ]*[\d]{1,3}[ ]*\n|@ff|<title>.*$'
         self.P_WHITESPACE = '\n|\r|\t|\\u200a|\\uf000|\\ufeff|\\u3000'
 
         self.P_PARANTHESIS = '\(.+?\)|\[.+?\]|[\d]+\)|〔.+?\〕' # 부연 및 주석 패턴 e.g. (blah), [1], 1) 
-        self.P_DIALOGUE = '".+?"|\'.+?\'' # 대화 및 독백 패턴 e.g. "blah", 'blah'
+        self.P_DIALOGUE = '".+?"|\'.+?\'|<talk>.*$' # 대화 및 독백 패턴 e.g. "blah", 'blah'
 
         self.P_SYMBOL = '[\'\"‘’“”`,·:<>〈〉「」『』《》\+\-─=―_\*]'
         self.P_SUB_SPACE = '(– )|(- )|(─ )' # 스페이스와 대체할 패턴
