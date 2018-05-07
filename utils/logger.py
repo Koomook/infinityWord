@@ -8,7 +8,7 @@ class FileLogger(object):
         # levels : debug > info > warning > error > critical
         self.logger.setLevel(logging.DEBUG)
 
-        formatter = logging.Formatter('[%(levelname)s|%(filename)s:%(lineno)s] %(asctime)s > %(message)s')
+        formatter = logging.Formatter('%(asctime)s [%(levelname)s|%(filename)s:%(lineno)s] > %(message)s')
 
         file_max_bytes = 10 * 1024 * 1024 
         file_backupCount = 10
@@ -16,7 +16,9 @@ class FileLogger(object):
         streamHandler = logging.StreamHandler()
 
         fileHandler.setFormatter(formatter)
-        # streamHandler.setFormatter(formatter)
+        fileHandler.setLevel(logging.DEBUG)
+        streamHandler.setLevel(logging.INFO)
+
         self.logger.handlers = []
         self.logger.addHandler(fileHandler)
         self.logger.addHandler(streamHandler)

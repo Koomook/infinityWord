@@ -1,3 +1,5 @@
 webnovel_data_raw/
 .ipynb_checkpoints/
 *.ipynb
+sftp-config.json
+__pycache__

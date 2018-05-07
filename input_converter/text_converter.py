@@ -2,9 +2,9 @@ import re
 import os, sys
 from konlpy.tag import Mecab
 from slackclient import SlackClient
-import logging
-import logging.handlers
-from ...utils.logger import FileLogger, MongoLogger
+
+
+from ..utils.logger import FileLogger, MongoLogger
 
 
 
