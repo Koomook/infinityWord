@@ -4,31 +4,37 @@ from konlpy.tag import Mecab
 from slackclient import SlackClient
 import logging
 import logging.handlers
-from ..utils.logger import FileLogger, MongoLogger
+from ...utils.logger import FileLogger, MongoLogger
 
 
 
 class Processor(object):
 
-    def __init__(self, name, logging_path):
+    def __init__(self, name, logging_path, txt_type):
         # Patterns & Lenghth limit
-        self.P_CHAPTER = '\n[제 ]*[\d]{1,3}[ ]*[장편막부]+ .{0,50}\n|\n[ ]*[\d]{1,3}[\. ]+.{0,50}\n|\n\n[가-힣]+\n\n|\n[ ]*[\d]{1,3}[ ]*\n|@ff|<title>.*$'
+        if txt_type == 'N':
+            self.P_CHAPTER = '<title>.*$' 
+            self.P_DIALOGUE = '<talk>.*$'
+            
+        else:
+            self.P_CHAPTER = '\n[제 ]*[\d]{1,3}[ ]*[장편막부]+ .{0,50}\n|\n[ ]*[\d]{1,3}[\. ]+.{0,50}\n|\n\n[가-힣]+\n\n|\n[ ]*[\d]{1,3}[ ]*\n|@ff'
+            self.P_DIALOGUE = '".+?"|\'.+?\'' # 대화 및 독백 패턴 e.g. "blah", 'blah'
+        
         self.P_WHITESPACE = '\n|\r|\t|\\u200a|\\uf000|\\ufeff|\\u3000'
-
         self.P_PARANTHESIS = '\(.+?\)|\[.+?\]|[\d]+\)|〔.+?\〕' # 부연 및 주석 패턴 e.g. (blah), [1], 1) 
-        self.P_DIALOGUE = '".+?"|\'.+?\'|<talk>.*$' # 대화 및 독백 패턴 e.g. "blah", 'blah'
+        self.P_SYMBOL = '[\'\"‘’“”`,·:〈〉「」『』《》\+\-─=―_\*]|<talk>' # 삭제해도 무방한 심볼들
 
-        self.P_SYMBOL = '[\'\"‘’“”`,·:<>〈〉「」『』《》\+\-─=―_\*]'
         self.P_SUB_SPACE = '(– )|(- )|(─ )' # 스페이스와 대체할 패턴
         self.P_SUB_PERIOD = '…|\.+'
-
         self.P_DELIMITER = '\.|!|\?'
 
-        self.P_NOT_KOREAN = '[^가-힣0-9 ⎡⎜]'
-        self.P_NOT_KorEngNum = '[^가-힣0-9A-Za-z⎡⎜]'
+        self.P_DS = '⎡' # 대사의 시작 문장 (Dialogue Start)
+        self.P_DC = '⎜' # 대사의 이어지는 문장 (Dialogue Continue)
+        self.P_NOT_KOREAN = '[^가-힣0-9 {}{}]'.format(self.P_DS, self.P_DC)
+        self.P_NOT_KorEngNum = '[^가-힣0-9A-Za-z {}{}]'.format(self.P_DS, self.P_DC)
 
         self.MIN_LEN_CHAPTER = 500
-        self.MIN_LEN_CHUNK = 3
+        self.MIN_LEN_CHUNK = 3 # P_DELIMITER로 구분하였을 때 글자수가 3 이하이면, 주위 chunk에 붙인다
         
         self.logger = FileLogger(name, logging_path).get()
         self.tagger = Mecab()
@@ -111,7 +117,7 @@ class Processor(object):
             # 대사를 여러 문장으로 나누었을 때, 두 문장 이상이면 짧은 문장을 묶는다.
             if len(_list) > 1:
                 _list = unite_short_chunks(0, _list)
-                _dialogue  = '⎡' + '.⎜'.join(_list) + '.'
+                _dialogue  = self.P_DS + self.P_DC.join(_list) + '.'
             
             txt = txt.replace(dialogue, _dialogue, )
             
@@ -132,7 +138,7 @@ class Processor(object):
         for i, line in enumerate(sen_list):
             tmp_line = []
             for tu in self.tagger.pos(line):
-                if tu[0] == '⎡' or tu[0] == '⎜':
+                if tu[0] == self.P_DS or tu[0] == self.P_DC:
                     tmp_line.append(tu[0])
                 else:
                     tmp_line.append('/'.join(tu))
