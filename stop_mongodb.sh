@@ -1,4 +1,4 @@
 #!/bin/bash
 
-sudo systemctl start mongodb
+sudo systemctl stop mongodb
 sudo systemctl status mongodb
