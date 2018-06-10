@@ -2,3 +2,5 @@ webnovel_data_raw/
 .ipynb_checkpoints/
 sftp-config.json
 __pycache__
+mongo-config.json
+slack-config.json

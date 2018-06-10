@@ -10,7 +10,7 @@ class FileLogger(object):
 
         formatter = logging.Formatter('%(asctime)s [%(levelname)s|%(filename)s:%(lineno)s] > %(message)s')
 
-        file_max_bytes = 10 * 1024 * 1024 
+        file_max_bytes = 1 * 1024 * 1024 
         file_backupCount = 10
         fileHandler = logging.handlers.RotatingFileHandler(filename=log_file_path, maxBytes=file_max_bytes)
         streamHandler = logging.StreamHandler()

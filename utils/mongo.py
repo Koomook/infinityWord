@@ -20,6 +20,20 @@ def connect_mongo(address, username, password, database_name, test=True):
         print('DB Authentication Succeeded')
     return db
 
+def connect_mongo_config(db_config):
+    try:
+        client = MongoClient(host=db_config['host'],
+                             username=db_config['username'],
+                             password=db_config['password'],
+                             authSource=db_config['authSource'],
+                             authMechanism=db_config['authMechanism'])
+        db = client.get_database(db_config['authSource'])
+        print(db.collection_names())
+        return db
+
+    except PyMongoError:
+        print('server error')
+
 class GetCollection():
 
     def __init__(self, address, username, password, database_name, test=True):
