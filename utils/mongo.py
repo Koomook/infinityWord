@@ -21,6 +21,7 @@ def connect_mongo(address, username, password, database_name, test=True):
     return db
 
 def connect_mongo_config(db_config):
+    """connect mongodb and returns database"""
     try:
         client = MongoClient(host=db_config['host'],
                              username=db_config['username'],

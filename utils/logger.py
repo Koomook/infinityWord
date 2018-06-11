@@ -2,30 +2,29 @@ import logging
 import logging.handlers
 import pymongo
 
-class FileLogger(object):
-    def __init__(self, name, log_file_path):
-        self.logger = logging.getLogger(name)
-        # levels : debug > info > warning > error > critical
-        self.logger.setLevel(logging.DEBUG)
+def create_logger(logging_name, logging_fp=None):
+    logger = logging.getLogger(logging_name)
+    # levels : debug > info > warning > error > critical
 
-        formatter = logging.Formatter('%(asctime)s [%(levelname)s|%(filename)s:%(lineno)s] > %(message)s')
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s|%(filename)s:%(lineno)s] > %(message)s')
+    formatter_simple = logging.Formatter('|%(levelname)s|%(message)s')
+    logger.handlers = []
+
+    streamHandler = logging.StreamHandler()
+    streamHandler.setLevel(logging.INFO)
+    streamHandler.setFormatter(formatter_simple)
+    logger.addHandler(streamHandler)
+
+    if logging_fp != None:
 
         file_max_bytes = 1 * 1024 * 1024 
-        file_backupCount = 10
-        fileHandler = logging.handlers.RotatingFileHandler(filename=log_file_path, maxBytes=file_max_bytes)
-        streamHandler = logging.StreamHandler()
-
+        fileHandler = logging.handlers.RotatingFileHandler(filename=logging_fp, maxBytes=file_max_bytes)
         fileHandler.setFormatter(formatter)
         fileHandler.setLevel(logging.DEBUG)
-        streamHandler.setLevel(logging.INFO)
+        
+        logger.addHandler(fileHandler)
 
-        self.logger.handlers = []
-        self.logger.addHandler(fileHandler)
-        self.logger.addHandler(streamHandler)
-
-    def get(self):
-        return self.logger
-
+    return logger
 
 
 class MongoLogger(object):

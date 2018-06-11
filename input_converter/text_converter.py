@@ -4,26 +4,36 @@ from konlpy.tag import Mecab
 from slackclient import SlackClient
 from collections import Counter
 import numpy as np
-from ..utils.logger import FileLogger, MongoLogger
+from ..utils.logger import create_logger
 
+class Converter(object):
+    """Convert text from raw novel data to structured text datal.
+    Converting includes (1) Seperating into Chapters and line and Cleaning them, 
+    (2) Tagging POS of words line by line (3) Split long line into multiple liens.
+    Standard format of outputs from methods should be: `Book > Chapters > Lines`
 
+    Attributes:
+        txt_type: String, it should be one of the 'N', 'D', 'E'
+        mono: Boolean, if `True`, distinguish monologue and dialogue by two tokens
+        logging_name: name of logger
+        logging_path: file path to save logs
+    """
 
-class Processor(object):
-
-    def __init__(self, name, logging_path, txt_type, mono=True):
-        # Patterns & Lenghth limit
-        self.logger = FileLogger(name, logging_path).get()
+    def __init__(self, txt_type, mono=True, logging_name='textconvert', logging_path=None):
+        self.mono = mono
+        self.logger = create_logger(logging_name, logging_path)
         self.tagger = Mecab()
         self.unknowns = Counter()
-        self.mono = mono
-
+        
         # Tokens
         self.SD = '🐱' # 문장 구분 (Sentence Delimeter)
         self.D_SYMBOLS = ['"', "'", '‘', '’', '“', '”']
         self.DS1 = '⎡' # 대사의 시작 문장 (Dialogue Start), Double quote
         self.DS2 = '⎛' # 대사의 시작 문장 (Dialogue Start), Single quote
         self.DC = '⎜' # 대사의 이어지는 문장 (Dialogue Continue)
+        self.LS = '⌙' # tagged data의 긴 나눈 표시 (Long Split)
 
+        # Patterns
         if txt_type == 'N':
             self.P_CHAPTER = '<title>.*\n' 
             self.P_WHITESPACE = '\r|\t|\\u200a|\\uf000|\\ufeff|\\u3000|\\xa0'
@@ -41,19 +51,36 @@ class Processor(object):
             self.P_WHITESPACE = '\r|\t|\\u200a|\\uf000|\\ufeff|\\u3000|\\xa0'
             self.P_DELIMITER = '(?<!\d)\.(?![\d]+)|\!|\?|\n' 
             self.P_DIALOGUE = '\n *".+?"|\n *\'.+?\'|\n *‘.+?’|\n *“.+?”|\n *「.+?」'
+
+        else:
+            self.logger.warning('{} is not defined text type. You only be able to tag and split sentences.'.format(txt_type))
             
-        self.P_PARANTHESIS = '\(.+?\)|\[\d+?\]|\d+\)|〔.+?\〕' # 부연 및 주석 패턴 e.g. (blah), [1], 1) 
-        # 삭제해도 무방한 심볼들과 P_PRMT_SYMBOLS 에 해당하는 문자들 중에서 삭제해야하는 케이스를 정의
-        self.P_SKIP_SYMBOLS = '<talk>|(?<!\d)[~\+\-]+(?![\d]+)|(?<!\d)%|[/\'\"\*\^\(\)\|‘’“”`;·:〈〉<>「」『』《》【】〖〗─=―—ㅡ_⎯]' 
+        self.P_PARANTHESIS = '\(.+?\)|\[\d+?\]|\d+\)|〔.+?\〕'
+        
+        # Permitted symbols (Special Characters)
         self.P_PRMT_SYMBOLS = '%&~…\.\?\!,\+\-{}{}{}{}'.format(self.SD, self.DS1, self.DS2, self.DC)
+        # Specific cases where permitted symbols should be skipped and usual special symbols
+        self.P_SKIP_SYMBOLS = '<talk>|(?<!\d)[~\+\-]+(?![\d]+)|(?<!\d)%|[/\'\"\*\^\(\)\|‘’“”`;·:〈〉<>「」『』《》【】〖〗─=―—ㅡ_⎯]' 
 
-        self.P_NOT_KorNum = '[^ 가-힣0-9\\u1100-\\u11FF\\u3130-\\u318F{}]'.format(self.P_PRMT_SYMBOLS)
-        self.P_NOT_KorEngNum = '[^ A-Za-z가-힣0-9\\u1100-\\u11FF\\u3130-\\u318F{}]'.format(self.P_PRMT_SYMBOLS)
+        # Filters
+        self.F_KorNum = '[^ 가-힣0-9\\u1100-\\u11FF\\u3130-\\u318F{}]'.format(self.P_PRMT_SYMBOLS)
+        self.F_KorEngNum = '[^ A-Za-z가-힣0-9\\u1100-\\u11FF\\u3130-\\u318F{}]'.format(self.P_PRMT_SYMBOLS)
 
-        self.MIN_LEN_CHAPTER = 500
-        self.MIN_LEN_CHUNK = 4 # P_DELIMITER로 구분하였을 때 글자수가 3 이하이면, 주위 chunk에 붙인다
+        # Length Limits
+        self.MIN_LEN_CHAPTER = 2500
+        self.MIN_LEN_CHUNK = 5
 
-    def clean_raw(self, book, pattern):
+    def clean_raw(self, book, clean_filter):
+        """Seperate chapters by title of chapters, substitue or skip useless symbols,
+        distinguish dialogue (and monologue) from statements, and split into sentneces.
+        The order of methods is important.
+
+        Attributes:
+            book: String
+            clean_filter: regular expression pattern to capture all unwanted characters. 
+                Although `skip_symbos method` works simillar, defining all unwnated characters 
+                one by one is impossible.
+        """
         book_cleaned = []
         num_line_acc = 0
         for i, chap in enumerate(self.divide_chapter(book)):
@@ -62,26 +89,26 @@ class Processor(object):
             chap = self.sub_symbols(chap)
             chap = self.process_dialogue(chap)
             chap = self.skip_symbols(chap)
-            sen_list = self.split_sentece(chap)            
+            sent_list = self.split_sentece(chap)            
             
-            _sen_list = []
-            for sen in sen_list:
+            _sent_list = []
+            for sen in sent_list:
                 if sen == self.DS1 or sen == self.DS2:
                     self.logger.debug('REVIEW CHAPTER {:3}: only dialogue start token'.format(i))
                 else:
-                    _not = re.findall(pattern, sen)
+                    _not = re.findall(clean_filter, sen)
                     if _not != []:
                         if not _not in self.D_SYMBOLS:
                             self.logger.debug('-SKIPPED SYMBOLS: CHAPTER {:3}: {} <- {}'.format(i, _not, sen))
-                        sen_only = re.sub(pattern, '', sen)
-                        if not sen_only == '':
-                            _sen_list.append(sen_only.strip())
+                        sent_only = re.sub(clean_filter, '', sen)
+                        if not sent_only == '':
+                            _sent_list.append(sent_only.strip())
                     else:
-                        _sen_list.append(sen)
-            len_list = len(_sen_list)
+                        _sent_list.append(sen)
+            len_list = len(_sent_list)
             num_line_acc += len_list
             self.logger.debug('>> CHAPTER {:3}: {} characters, {} lines, {} lines accumulated'.format(i, len(chap),len_list, num_line_acc))
-            book_cleaned.append(_sen_list)
+            book_cleaned.append(_sent_list)
         self.logger.info('Cleaned: {} chapters: {} lines'.format(len(book_cleaned), num_line_acc))
         return book_cleaned
 
@@ -99,19 +126,29 @@ class Processor(object):
         return result
 
     def skip_linespacing(self, txt): # 이름 바꾸기
-        # 글의 폭을 맞추기 위한 개행 제거, 불필요한 여백제거
-        # 텍스트가 고정폭으로 잘려있지 않아도 이걸 해주면 좋을 것 같음
+        """Remove new lines to fit text and unnecessary margins """
         txt = re.sub(self.P_WHITESPACE, '', txt)
         return txt
 
     def skip_elaborate(self, txt): #부연, 주석표시 등 삭제
-        return re.sub(self.P_PARANTHESIS, '', txt)
+        """Remove additional explanation and annotation marks. """
+        txt = re.sub(self.P_PARANTHESIS, '', txt)
+        return txt
 
     def skip_symbols(self, txt):
+        """Remove usual sepecial characters and emoji """
         txt = re.sub(self.P_SKIP_SYMBOLS, '', txt)
         return txt
 
     def sub_symbols(self, txt):
+        """Subtitute symbols to make sure Sentence Delimeters and special marks
+        (1) Shorten successive spaces
+        (2) replace `...` to `…`, max length is two of `…`
+        (3) Add SD after `.` except for the numbers(float)
+        (4) Add SD after `!`, shorten the successivemarks to one
+        (5) Add SD after `?`, shorten the successivemarks to one
+        """
+
         txt = re.sub(' {2,}', ' ', txt)
         txt = re.sub('\.{2,3}', '…', txt)
         txt = re.sub('…{2,}', '……', txt)
@@ -122,56 +159,57 @@ class Processor(object):
         return txt
 
     def process_dialogue(self, txt):
-        # unite adjascent short chunks recursively
-        def unite_short_chunks(start, _list):
+        """Pick out monologues and dialogues and split to sentences
+        and reunite them by length, because there are too short sentences
+        in dialogues.
+        """
+        def _unite_short_chunks(start, _list, minimum):
+            """If the length of a chunk is shorter than `minimum`, 
+            attach it to nearest chunk.
+            """
             for i in range(start, len(_list)-1):
-                if(len(_list[i])<self.MIN_LEN_CHUNK or len(_list[i+1])<self.MIN_LEN_CHUNK):
+                if(len(_list[i])< minimum or len(_list[i+1])<minimum):
                     _list[i] = ''.join([_list[i], _list.pop(i+1)])
-                    _list = unite_short_chunks(i, _list)
+                    _list = _unite_short_chunks(i, _list, minimum)
                     break
             return _list
-        
+
+
         for dialogue in re.findall(self.P_DIALOGUE, txt):
-            # quote 삭제, 필요 없는 구두점을 모두 바꾼 후, 
-            # (구두점이 있으면 split의 길이가 길어져 united 되는 빈도가 적어진다)
             if self.mono == True and (dialogue.strip()[0] in ["'", "‘"]):
                 DS = self.DS2
             else:
                 DS = self.DS1
 
             _dialogue = self.skip_symbols(dialogue)
-            # _dialogue = self.sub_symbols(dialogue)
-            # print(_dialogue)
-            
-            # 하나의 대사 내에서 DELIMITER로 문장을 나누고, ''와 ' '는 제외함
             _list = self.split_sentece(_dialogue)
-            # 대사를 여러 문장으로 나누었을 때, 두 문장 이상이면 짧은 문장을 묶는다.
+            
             if len(_list) > 1:
-                # try:
-                _list = unite_short_chunks(0, _list)
-                # except RecursionError as e:
-                #     self.logger.fatal('{}'.format(e))
-                #     self.logger.info('{}\n{}'.format(dialogue, _list))
+                _list = _unite_short_chunks(0, _list, self.MIN_LEN_CHUNK)
             _dialogue  = (self.SD+self.DC).join(_list) + self.SD
             _dialogue = self.SD + DS + _dialogue
-            # print(_dialogue)
 
             txt = txt.replace(dialogue, _dialogue, )
         return txt
 
     def split_sentece(self, txt):
-        """ DELIMITER로 문장을 나누고, ''와 ' '는 제외함
-        
-            return: 문장들의 리스트
+        """Seprerate a chunk of text to list of strings 
+        by Sentence Delimeters
         """
         _list = [sen.strip() for sen in re.split(self.SD, txt)] 
         _list = list(filter(('').__ne__, _list))
         return _list
 
     
-    def pos_tagging_chapter(self, sen_list):
+    def pos_tagging_chapter(self, sent_list):
+        """Tag list of sentneces with tagger (konlpy.tag.Mecab)
+        unknown tags are collected in list.
+        
+        Attributes:
+            sent_list: List of sentneces, a chapter.
+        """
         chap_tagged = []
-        for i, line in enumerate(sen_list):
+        for i, line in enumerate(sent_list):
             tmp_line = []
             for tu in self.tagger.pos(line):
                 if tu[0] in [self.DS1, self.DS2, self.DC]:
@@ -188,6 +226,7 @@ class Processor(object):
         return chap_tagged
 
     def pos_tagging_book(self, cleaned):
+        """Wrapper method for tagging chapters, a book """
         tagged = []
         for chap in cleaned:
             tagged.append(self.pos_tagging_chapter(chap))
@@ -195,8 +234,12 @@ class Processor(object):
         return tagged
 
     def split_long_sentence(self, sent_tagged, max_length, verbosa=False):
-        """Split long sentence into two sentneces recursively
-            
+        """Split long sentence into two sentneces recursively.
+
+        Attributes:
+            sent_tagged: List of tagged sentences, a chapter
+            max_length: criteria length to cut sentence
+            verbosa: if True, all process of split is shown.
         """
         
         # split sentence into words list
@@ -216,7 +259,7 @@ class Processor(object):
                     words.append(word)
                     tags.append(tag)
             except:
-                self.logger.info('{} is not permitted symbol: {}'.format(word_tag, sent_tagged))
+                self.logger.warning('{} is not permitted symbol: {}'.format(word_tag, sent_tagged))
                 return [sent_tagged]
         
         if len(words) != len(tags):
@@ -261,7 +304,7 @@ class Processor(object):
         
         # split list 
         list1 = word_arr[:split_idx+1]
-        list2 = np.insert(word_arr[split_idx+1:], 0, '⌙', axis=0)
+        list2 = np.insert(word_arr[split_idx+1:], 0, self.LS, axis=0)
         
         sent1 = ' '.join(list1)
         sent2 = ' '.join(list2)
@@ -285,6 +328,11 @@ class Processor(object):
         return result
 
     def split_long_sentence_book(self, tagged_book, max_length, verbosa=False):
+        """Wrapper method for split long sentences in chapters, a book 
+        If any sub-sentnece is longer than max_length and not split, 
+        cancle all split action taken and return the origin sentence 
+        """
+
         split_book = []
         num_split, num_not, num_total = 0, 0, 0
 
@@ -313,5 +361,3 @@ class Processor(object):
             split_book.append(split_chap)
         self.logger.info('Split: total {:7} line | Split: {} | Not: {}'.format(num_total, num_split, num_not))
         return split_book
-        
-
