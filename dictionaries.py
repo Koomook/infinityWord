@@ -1,7 +1,9 @@
 from collections import Counter
-from os.path import dirname, join, exists
+from os.path import dirname, join, exists, abspath
 from os import mkdir
 import pickle
+
+BASE_DIR = dirname(abspath(__file__))
 
 
 class BaseDictionary:
@@ -52,8 +54,7 @@ class BaseDictionary:
                       'word2idx': self.word2idx,
                       'idx2word': self.idx2word}
 
-        base_dir = dirname(__file__)
-        parameters_dir = join(base_dir, 'parameters', 'base_dictionary')
+        parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
         if not exists(parameters_dir):
             mkdir(parameters_dir)
         parameters_filepath = join(parameters_dir, name)
@@ -63,9 +64,7 @@ class BaseDictionary:
 
     @staticmethod
     def load(name):
-
-        base_dir = dirname(__file__)
-        parameters_dir = join(base_dir, 'parameters', 'base_dictionary')
+        parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
         parameters_filepath = join(parameters_dir, name)
 
         with open(parameters_filepath, 'rb') as file:
@@ -75,7 +74,6 @@ class BaseDictionary:
 
     @staticmethod
     def exists_saved_parameters(name):
-        base_dir = dirname(__file__)
-        parameters_dir = join(base_dir, 'parameters', 'base_dictionary')
+        parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
         parameters_filepath = join(parameters_dir, name)
         return exists(parameters_filepath)
