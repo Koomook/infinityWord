@@ -1,3 +1,5 @@
+""" Doesn't Work """
+
 import requests
 import re
 import os
@@ -11,9 +13,13 @@ from os.path import dirname, abspath, join, exists
 WEBNOVEL_BASE_URL = 'http://novel.naver.com'
 GENRE_BASE_URL = 'http://novel.naver.com/webnovel/genre.nhn?'
 
-#로맨스, 로맨스판타지, 판타지, 무협,미스터리,역사/전쟁, 라이트노벨, 퓨전
+TITLE_TOKEN = '<title>'
+TALK_TOKEN = '<talk>'
+QUOTES = '[“”‘’-]'  # will be stripped
+
+# 로맨스, 로맨스판타지, 판타지, 무협,미스터리,역사/전쟁, 라이트노벨, 퓨전
 # 장르 이름 : [url_num, 'url_sep']
-genre_item_list = {
+GENRE_ITEMS = {
     'romance' : [101, 'rom'],
     'romancefantasy' : [109, 'rof'],
     'fantasy' : [102, 'sff'],
@@ -29,9 +35,7 @@ genre_item_list = {
 def get_novel_url_dict(genre_name, finished):
     novel_dict = {}  # 소설 제목 : 소설 url 형태로 return
 
-    genre_item = genre_item_list[genre_name]
-    genre_num = genre_item[0]
-    url_sep = genre_item[1]
+    genre_num, url_sep = GENRE_ITEMS[genre_name]
 
     for page_num in range(1, 20):
         params = {
@@ -59,17 +63,13 @@ def get_novel_url_dict(genre_name, finished):
         time.sleep(0.05)
     return novel_dict
 
-#유효한 response인지 검사
+
+# 유효한 response인지 검사
 def valid_status(response):
     if response.status_code == 200:
         return True
     else :
         return False
-
-
-TITLE_TOKEN = '<title>'
-TALK_TOKEN = '<talk>'
-QUOTES = '[“”‘’-]'  # will be stripped
 
 
 # url로부터 내용 읽어서 파싱
@@ -89,7 +89,7 @@ def get_content_from_url(content_page_url):
 
     line_list = crawler.find('div', {'class': 'detail_view_content ft15'}).find_all('p')
     for line in line_list:
-        if line.has_attr('class') == False:  # general sentence
+        if not line.has_attr('class'):  # general sentence
             processed_sentence = line.get_text().strip()
             content += processed_sentence
         elif 'talk' in line['class']:  # talk
@@ -119,25 +119,21 @@ def crawl_and_write(genre, novel_url_dict, finished):
     for title, url in novel_url_dict.items():
         check_index = check_index + 1
         file_name = title + '.txt'  # filename
-        file_name = re.sub('[\/:*?"<>|]', '', file_name)  # file명 형식에 맞게 수정
+        file_name = re.sub('[/:*?"<>|]', '', file_name)  # file명 형식에 맞게 수정
 
         r = requests.get(url)
         crawler = BeautifulSoup(r.content, 'html.parser')
 
         total = int(crawler.find("span", {"class": "total"}).get_text()[1:-1])  # 전체 회차
         if total == 0:  # 회차 없으면 멈춤
-            break;
+            break
         page_limit = total // 10  # 한 페이지에 10개씩
         if total % 10 != 0:
             page_limit += 1
         #         print(total)
         #         print(page_limit)
 
-        # 완결/미완결에 따라 분기
-        if finished:
-            iterate_range = range(1, page_limit + 1)
-        else:
-            iterate_range = range(1, page_limit + 1)
+        iterate_range = range(1, page_limit + 1)
 
         novel_content_list = []
         for page_num in iterate_range:
@@ -172,7 +168,7 @@ def crawl_and_write(genre, novel_url_dict, finished):
 def get_metadata_dict(genre_name, finished):
     metadata_dict = {}
 
-    genre_item = genre_item_list[genre_name]
+    genre_item = GENRE_ITEMS[genre_name]
     genre_num = genre_item[0]
     url_sep = genre_item[1]
 
@@ -195,7 +191,7 @@ def get_metadata_dict(genre_name, finished):
             url = novel.a.attrs['href']  # url
             novel_id = url.split('=')[-1]  # novel_id
             title = novel.find('p', {'class': 'subj v3'}).contents[0]  # title
-            title = re.sub('[\/:*?"<>|]', '', title)  # 특수문자 제거
+            title = re.sub('[/:*?"<>|]', '', title)  # 특수문자 제거
             author = novel.find('span', {'class': 'ellipsis'}).get_text()  # author
             total_episode = novel.find('span', {'class': 'num_total'}).get_text()[2:-1]  # total_episode
             star_rating = novel.find('span', {'class': 'score_area'}).get_text()[2:]  # 별점
@@ -212,15 +208,16 @@ def get_metadata_dict(genre_name, finished):
         time.sleep(0.05)
     return metadata_dict
 
+
 if __name__ == '__main__':
     base_dir = dirname(dirname(abspath(__file__)))
     data_dir = join(base_dir, 'data', 'webnovel_data')
-    for genre in genre_item_list.keys():
+    for genre in GENRE_ITEMS.keys():
         directory = join(data_dir, genre)
         if not exists(directory):
             os.makedirs(directory)
 
-        for finished in True, False:  # 완결, 미완결
+        for finished in (True, False):  # 완결, 미완결
             if (genre == 'history&war') & (finished == True):
                 continue
             novel_url_dict = get_novel_url_dict(genre, finished)  # 장르별 소설 url list
@@ -229,8 +226,8 @@ if __name__ == '__main__':
         print('\n')
 
     metadata_dict = {}
-    for genre in genre_item_list.keys():
-        for finished in True, False:  # 완결, 미완결
+    for genre in GENRE_ITEMS.keys():
+        for finished in (True, False):  # 완결, 미완결
             if (genre == 'history&war') & (finished == True):
                 continue
             metadata_dict.update(get_metadata_dict(genre, finished))
