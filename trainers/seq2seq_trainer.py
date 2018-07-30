@@ -42,6 +42,8 @@ class Seq2SeqTrainer:
             train_sources = train_sources.to(self.device)
             train_inputs = train_inputs.to(self.device)
             train_targets = train_targets.to(self.device)
+            train_source_lengths = train_source_lengths.to(self.device)
+            train_target_lengths = train_target_lengths.to(self.device)
 
             train_decoder_outputs, train_decoder_state, train_attentions = self.model(train_sources, train_inputs, train_source_lengths)
 
@@ -72,7 +74,9 @@ class Seq2SeqTrainer:
                 val_sources = val_sources.to(self.device)
                 val_inputs = val_inputs.to(self.device)
                 val_targets = val_targets.to(self.device)
-
+                val_source_lengths = val_source_lengths.to(self.device)
+                val_target_lengths = val_target_lengths.to(self.device)
+                
                 val_decoder_outputs, val_decoder_state, val_attentions = self.model(val_sources, val_inputs,
                                                                                     val_source_lengths)
 
