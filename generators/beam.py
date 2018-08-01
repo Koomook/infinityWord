@@ -35,6 +35,7 @@ class Beam:
 
     def advance(self, next_log_probs, current_attention):
         # next_probs : beam_size X vocab_size
+        # current_attention: (target_seq_len=1, beam_size, source_seq_len)
 
         vocabulary_size = next_log_probs.size(1)
         # current_beam_size = next_log_probs.size(0)
@@ -59,12 +60,14 @@ class Beam:
         self.current_scores = top_scores
         self.all_scores.append(self.current_scores)
 
-        prev_k = top_score_ids / vocabulary_size
-        next_y = top_score_ids - prev_k * vocabulary_size
+        prev_k = top_score_ids / vocabulary_size  # (beam_size, )
+        next_y = top_score_ids - prev_k * vocabulary_size  # (beam_size, )
 
         self.prev_ks.append(prev_k)
         self.next_ys.append(next_y)
-        self.all_attentions.append(current_attention.index_select(dim=0, index=prev_k))
+        prev_attention = current_attention.index_select(dim=1, index=prev_k)  # (target_seq_len=1, beam_size, source_seq_len)
+        self.all_attentions.append(prev_attention)
+
 
         for beam_index, last_token_id in enumerate(next_y):
             if last_token_id == self.end_token_id:
@@ -89,9 +92,10 @@ class Beam:
         hypothesis, attentions = [], []
         for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
             hypothesis.append(self.next_ys[j + 1][k])
-            attentions.append(self.all_attentions[j][k])
+            attentions.append(self.all_attentions[j][:, k, :])
             k = self.prev_ks[j][k]
-        return hypothesis[::-1], torch.stack(attentions[::-1])
+        attentions_tensor = torch.stack(attentions[::-1]).squeeze(1)  # (timestep, source_seq_len)
+        return hypothesis[::-1], attentions_tensor
 
     def sort_finished(self, minimum=None):
         if minimum is not None:

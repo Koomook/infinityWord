@@ -51,13 +51,16 @@ class Seq2SeqTrainer:
             train_outputs_flat = train_decoder_outputs.view(-1, vocabulary_size)
             train_targets_flat = train_targets.view(-1)
             train_batch_loss = self.loss_function(train_outputs_flat, train_targets_flat)
+            train_mask = self.sequence_mask(lengths=train_target_lengths)
+            train_batch_loss_masked = train_batch_loss.masked_fill(train_mask, 0)
+            train_batch_loss_summed = train_batch_loss_masked.sum()
 
             self.optimizer.zero_grad()
-            train_batch_loss.backward()
+            train_batch_loss_summed.backward()
             self.optimizer.step()
 
-            train_batch_losses.append(train_batch_loss.item())
-            train_batch_token_count = train_targets_flat.size(0)
+            train_batch_losses.append(train_batch_loss_summed.item())
+            train_batch_token_count = train_target_lengths.sum().item()
             train_batch_token_counts.append(train_batch_token_count)
 
             if self.epoch == 0:  # for debugging
@@ -85,8 +88,12 @@ class Seq2SeqTrainer:
                 val_targets_flat = val_targets.view(-1)
                 val_batch_loss = self.loss_function(val_outputs_flat, val_targets_flat)
 
-                val_batch_losses.append(val_batch_loss.item())
-                val_batch_token_count = val_targets_flat.size(0)
+                val_mask = self.sequence_mask(lengths=val_target_lengths)
+                val_batch_loss_masked = val_batch_loss.masked_fill(val_mask, 0)
+                val_batch_loss_summed = val_batch_loss_masked.sum()
+
+                val_batch_losses.append(val_batch_loss_summed.item())
+                val_batch_token_count = val_target_lengths.sum().item()
                 val_batch_token_counts.append(val_batch_token_count)
 
             val_token_counts = sum(val_batch_token_counts)
@@ -117,6 +124,17 @@ class Seq2SeqTrainer:
                 if self.logger:
                     self.logger.info("Saving the model...")
                 self._save_model()
+
+    @staticmethod
+    def sequence_mask(lengths, max_length=None):
+        # lengths: (batch_size, )
+        if not max_length:
+            max_length = lengths.max()  # or predefined max_len
+        batch_size = lengths.size(0)
+        lengths_broadcastable = lengths.unsqueeze(1)
+        mask = torch.arange(0, max_length).type_as(lengths).repeat(batch_size, 1) >= lengths_broadcastable
+        # mask: (batch_size, seq_length)
+        return mask.view(-1)
 
     def _elapsed_time(self):
         now = datetime.now()
@@ -192,5 +210,6 @@ def seq2seq_collate_fn(batch):
 
     inputs_tensor = targets_tensor[:, :-1].contiguous()
     targets_tensor = targets_tensor[:, 1:].contiguous()
+    target_lengths = torch.tensor(target_lengths) - 1  # - 1 for inputs / targets split
 
-    return sources_tensor, inputs_tensor, targets_tensor, torch.tensor(source_lengths), torch.tensor(target_lengths)
+    return sources_tensor, inputs_tensor, targets_tensor, torch.tensor(source_lengths), target_lengths
