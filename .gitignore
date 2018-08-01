@@ -2,6 +2,7 @@
 sftp-config.json
 mongo-config.json
 slack-config.json
+datasets/mongodb_config.json
 
 .idea/
 
