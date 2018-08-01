@@ -12,7 +12,7 @@ CLIENT = MongoClient(host=MONGODB_CONFIG['host'],
                      password=MONGODB_CONFIG['password'],
                      authSource=MONGODB_CONFIG['authSource'],
                      authMechanism=MONGODB_CONFIG['authMechanism'])
-DB = CLIENT.get_database('raplab')
+DB = CLIENT.get_database(MONGODB_CONFIG['database'])
 
 
 class OneSeq2SeqDataset:
