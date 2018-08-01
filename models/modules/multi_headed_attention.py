@@ -68,6 +68,10 @@ class MultiHeadedAttention(nn.Module):
 
     def forward(self, key, value, query, mask=None,
                 layer_cache=None, type=None):
+        print('key', key.shape)
+        print('value', value.shape)
+        print('query', query.shape)
+        print('mask', mask.shape)
         """
         Compute the context vector and the attention vectors.
 
@@ -177,6 +181,8 @@ class MultiHeadedAttention(nn.Module):
         scores = torch.matmul(query, key.transpose(2, 3))
 
         if mask is not None:
+            print('mask', mask.shape)
+            print('scores', scores.shape)
             mask = mask.unsqueeze(1).expand_as(scores)
             scores = scores.masked_fill(mask, -1e18)
 

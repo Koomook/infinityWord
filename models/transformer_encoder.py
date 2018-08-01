@@ -7,6 +7,8 @@ from .modules.positionwise_linear import PositionwiseFeedForward
 from .modules.multi_headed_attention import MultiHeadedAttention
 from .modules.layer_norm import LayerNorm
 
+PAD_TOEKN_ID = 0
+
 
 class TransformerEncoderLayer(nn.Module):
     """
@@ -50,7 +52,7 @@ class TransformerEncoderLayer(nn.Module):
         return self.feed_forward(out) + out
 
 
-class TransformerEncoder:
+class TransformerEncoder(nn.Module):
     """
     The Transformer encoder from "Attention is All You Need".
 
@@ -106,16 +108,17 @@ class TransformerEncoder:
                 * final encoder state, used to initialize decoder
                 * memory bank for attention, `[src_len x batch x hidden]`
         """
-        self._check_args(src, lengths)
+        # self._check_args(src, lengths)
 
         emb = self.embeddings(src)
 
-        out = emb.transpose(0, 1).contiguous()
-        words = src[:, :, 0].transpose(0, 1)
-        w_batch, w_len = words.size()
-        padding_idx = self.embeddings.word_padding_idx
-        mask = words.data.eq(padding_idx).unsqueeze(1) \
+        out = emb
+        w_batch, w_len = src.size()
+        padding_idx = PAD_TOEKN_ID  # self.embeddings.word_padding_idx
+        print('src', src.shape)
+        mask = src.data.eq(padding_idx).unsqueeze(1) \
             .expand(w_batch, w_len, w_len)
+        print('mask', mask.shape)
         # Run the forward pass of every layer of the tranformer.
         for transformer_layer in self.transformer_layers:
             out = transformer_layer(out, mask)

@@ -1,6 +1,7 @@
 from torch import nn
 
-class RNNModel(nn.Module):
+
+class Seq2SeqModel(nn.Module):
     """
     Core trainable object in OpenNMT. Implements a trainable interface
     for a simple, generic encoder + decoder model.
@@ -11,7 +12,7 @@ class RNNModel(nn.Module):
     """
 
     def __init__(self, encoder, decoder):
-        super(RNNModel, self).__init__()
+        super(Seq2SeqModel, self).__init__()
         self.encoder = encoder
         self.decoder = decoder
 
@@ -36,7 +37,7 @@ class RNNModel(nn.Module):
         """
 
         encoder_state, memory_bank = self.encoder(sources, source_lengths)
-        decoder_state = self.decoder.init_decoder_state(encoder_state)
+        decoder_state = self.decoder.init_decoder_state(sources, memory_bank, encoder_state)
         decoder_outputs, decoder_state, attentions = self.decoder(inputs,
                                                                   memory_bank,
                                                                   decoder_state,

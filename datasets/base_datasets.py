@@ -2,10 +2,12 @@ from pymongo import MongoClient
 from random import seed, random, shuffle
 from tqdm import tqdm
 import json
+from os.path import dirname, abspath, join
 
 START_TOKEN = '<StartSent>'
 END_TOKEN = '<EndSent>'
-MONGODB_CONFIG = json.load(open('mongodb_config.json'))
+BASE_DIR = dirname(dirname(abspath(__file__)))
+MONGODB_CONFIG = json.load(open(join(BASE_DIR, 'datasets', 'mongodb_config.json')))
 
 CLIENT = MongoClient(host=MONGODB_CONFIG['host'],
                      username=MONGODB_CONFIG['username'],

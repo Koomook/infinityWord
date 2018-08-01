@@ -100,7 +100,7 @@ class GRUDecoder(nn.Module):
 
         return generated_outputs, decoder_state, attentions
 
-    def init_decoder_state(self, hidden_state):
+    def init_decoder_state(self, sources, memory_bank, hidden_state):
         return GRUDecoderState(self.hidden_size, hidden_state)
 
 
@@ -142,13 +142,14 @@ class GRUDecoderState:
     #     """ Need to document this """
     #     self.hidden = tuple([_.detach() for _ in self.hidden])
     #     self.input_feed = self.input_feed.detach()
-    #
+
     def beam_update(self, positions):
         """ Need to document this """
 
         for e in (self.hidden_state, self.input_feed):
             e.data.copy_(
                 e.data.index_select(1, positions))
+
 
 if __name__ == '__main__':
     import numpy as np

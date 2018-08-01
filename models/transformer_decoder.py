@@ -11,6 +11,7 @@ from .modules.multi_headed_attention import MultiHeadedAttention
 from .modules.layer_norm import LayerNorm
 
 MAX_SIZE = 5000
+PAD_TOKEN_ID = 0
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -31,7 +32,7 @@ class TransformerDecoderLayer(nn.Module):
         self.self_attn_type = self_attn_type
 
         if self_attn_type == "scaled-dot":  # Always
-            self.self_attn = onmt.modules.MultiHeadedAttention(
+            self.self_attn = MultiHeadedAttention(
                 heads, d_model, dropout=dropout)
 
         self.context_attn = MultiHeadedAttention(
@@ -63,6 +64,7 @@ class TransformerDecoderLayer(nn.Module):
             * all_input `[batch_size x current_step x model_dim]`
 
         """
+        print('inputs', inputs.shape)
         dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(1), :tgt_pad_mask.size(1)], 0)
         input_norm = self.layer_norm_1(inputs)
         all_input = input_norm
@@ -70,18 +72,18 @@ class TransformerDecoderLayer(nn.Module):
             all_input = torch.cat((previous_input, input_norm), dim=1)
             dec_mask = None
 
-        if self.self_attn_type == "scaled-dot":
-            query, attn = self.self_attn(all_input, all_input, input_norm,
-                                         mask=dec_mask,
-                                         layer_cache=layer_cache,
-                                         type="self")
-        elif self.self_attn_type == "average":
-            query, attn = self.self_attn(input_norm, mask=dec_mask,
-                                         layer_cache=layer_cache, step=step)
+        print('all_input', all_input.shape)
+        print('dec_mask', dec_mask.shape)
+        query, attn = self.self_attn(all_input, all_input, input_norm,
+                                     mask=dec_mask,
+                                     layer_cache=layer_cache,
+                                     type="self")
 
         query = self.drop(query) + inputs
 
         query_norm = self.layer_norm_2(query)
+        print('memory_bank', memory_bank.shape)
+        print('query_norm', query_norm.shape)
         mid, attn = self.context_attn(memory_bank, memory_bank, query_norm,
                                       mask=src_pad_mask,
                                       layer_cache=layer_cache,
@@ -90,7 +92,8 @@ class TransformerDecoderLayer(nn.Module):
 
         return output, attn, all_input
 
-    def _get_attn_subsequent_mask(self, size):
+    @staticmethod
+    def _get_attn_subsequent_mask(size):
         """
         Get an attention mask to avoid using the subsequent info.
 
@@ -138,20 +141,16 @@ class TransformerDecoder(nn.Module):
        attn_type (str): if using a seperate copy attention
     """
 
-    def __init__(self, num_layers, d_model, heads, d_ff, attn_type,
-                 copy_attn, self_attn_type, dropout, embeddings):
+    def __init__(self, num_layers, d_model, heads, d_ff, dropout, embeddings):
         super(TransformerDecoder, self).__init__()
 
         # Basic attributes.
-        self.decoder_type = 'transformer'
         self.num_layers = num_layers
         self.embeddings = embeddings
-        self.self_attn_type = self_attn_type
 
         # Build TransformerDecoder.
         self.transformer_layers = nn.ModuleList(
-            [TransformerDecoderLayer(d_model, heads, d_ff, dropout,
-             self_attn_type=self_attn_type)
+            [TransformerDecoderLayer(d_model, heads, d_ff, dropout)
              for _ in range(num_layers)])
 
         # TransformerDecoder has its own attention mechanism.
@@ -161,26 +160,45 @@ class TransformerDecoder(nn.Module):
     def forward(self, tgt, memory_bank, state, memory_lengths=None,
                 step=None, cache=None):
         """
-        See :obj:`onmt.modules.RNNDecoderBase.forward()`
+        Args:
+            tgt (`LongTensor`): sequences of padded tokens
+                 `[batch x tgt_len]`.
+            memory_bank (`FloatTensor`): vectors from the encoder
+                 `[batch x src_len x hidden]`.
+            state (:obj:`onmt.models.DecoderState`):
+                 decoder state object to initialize the decoder
+            memory_lengths (`LongTensor`): the padded source lengths
+                `[batch]`.
+        Returns:
+            (`FloatTensor`,:obj:`onmt.Models.DecoderState`,`FloatTensor`):
+                * decoder_outputs: output from the decoder (after attn)
+                         `[tgt_len x batch x hidden]`.
+                * decoder_state: final hidden state from the decoder
+                * attns: distribution over src at each tgt
+                        `[tgt_len x batch x src_len]`.
         """
+        print('memory_bank', memory_bank.shape)
         src = state.src
-        src_words = src[:, :, 0].transpose(0, 1)
-        tgt_words = tgt[:, :, 0].transpose(0, 1)
+        src_words = src
+        tgt_words = tgt
+        print('hihi', src_words.size())
         src_batch, src_len = src_words.size()
+
         tgt_batch, tgt_len = tgt_words.size()
+        print('tgt_batch, tgt_len', tgt_batch, tgt_len)
 
         # Initialize return variables.
         outputs = []
         attns = {"std": []}
 
         # Run the forward pass of the TransformerDecoder.
-        emb = self.embeddings(tgt, step=step)
+        emb = self.embeddings(tgt)  #
         assert emb.dim() == 3  # len x batch x embedding_dim
 
-        output = emb.transpose(0, 1).contiguous()
-        src_memory_bank = memory_bank.transpose(0, 1).contiguous()
+        output = emb
+        src_memory_bank = memory_bank
 
-        padding_idx = self.embeddings.word_padding_idx
+        padding_idx = PAD_TOKEN_ID  # self.embeddings.word_padding_idx
         src_pad_mask = src_words.data.eq(padding_idx).unsqueeze(1) \
             .expand(src_batch, tgt_len, src_len)
         tgt_pad_mask = tgt_words.data.eq(padding_idx).unsqueeze(1) \
@@ -211,12 +229,10 @@ class TransformerDecoder(nn.Module):
         output = self.layer_norm(output)
 
         # Process the result and update the attentions.
-        outputs = output.transpose(0, 1).contiguous()
-        attn = attn.transpose(0, 1).contiguous()
+        outputs = output
+        attn = attn
 
         attns["std"] = attn
-        if self._copy:
-            attns["copy"] = attn
 
         if state.cache is None:
             state = state.update_state(tgt, saved_inputs)
@@ -233,7 +249,7 @@ class TransformerDecoder(nn.Module):
         return state
 
 
-class TransformerDecoderState(DecoderState):
+class TransformerDecoderState:
     """ Transformer Decoder state base class """
 
     def __init__(self, src):
