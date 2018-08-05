@@ -11,7 +11,13 @@ from flask import Flask, request
 from flask_restplus import Resource, Api, fields
 
 app = Flask(__name__)
-api = Api(app)
+api = Api(app,
+          title='Demo',
+          version='0.1',
+          description='A demo of story generation',
+          default='Story Generator',
+          default_label='Story Generation Model',
+          )
 
 device = torch.device('cpu')
 logger = get_logger(log_name='demo')
