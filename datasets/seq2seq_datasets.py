@@ -88,6 +88,14 @@ class Seq2SeqIndexedDataset:
         target_indexed = document['indexed']['target']
         return source_indexed, target_indexed
 
+    def __iter__(self):
+        self.cursor.rewind()
+        for document in self.cursor:
+            source_indexed = document['indexed']['source']
+            target_indexed = document['indexed']['target']
+            yield source_indexed, target_indexed
+        self.cursor.rewind()
+
     def __len__(self):
         return self.cursor.count()
 
