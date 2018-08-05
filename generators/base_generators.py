@@ -37,12 +37,12 @@ class OneSentenceGenerator:
         return ' '.join(generated_sentence)
 
 
-class OneSentenceGeneratorWithBeam:
+class CandidatesGenerator:
 
-    def __init__(self, preprocess, model, dictionary, checkpoint_filepath, max_length=30, beam_size=8):
-        self.preprocess = preprocess  # lambda source: [dictionary[word] for word in sum([sentence.split() for sentence in source], [])]
+    def __init__(self, model, preprocess, postprocess, checkpoint_filepath, max_length=30, beam_size=8):
         self.model = model
-        self.dictionary = dictionary
+        self.preprocess = preprocess  # lambda source: [dictionary[word] for word in sum([sentence.split() for sentence in source], [])]
+        self.postprocess = postprocess  # lambda h: ' '.join([self.dictionary.idx2word[token_id] for token_id in h])
         self.max_length = max_length
         self.beam_size = beam_size
 
@@ -50,24 +50,33 @@ class OneSentenceGeneratorWithBeam:
         self.model.load_state_dict(checkpoint)
         self.model.eval()
 
-    def generate_one(self, source, n_top=1):
+        self.attentions = None
+
+    def generate_candidates(self, source, n_candidates=5):
 
         source_preprocessed = self.preprocess(source)
         source_tensor = torch.tensor([source_preprocessed])
         source_length = torch.tensor([len(source_preprocessed)])
-
+        # print('source_tensor', source_tensor.shape)
         encoder_state, memory_bank = self.model.encoder(source_tensor, source_length)
+        encoder_state = encoder_state.transpose(0,1)
+        # print('encoder_state: (num_layers, batch_size=1, hidden_size)', encoder_state.shape)
+        # print('memory_bank: (batch_size, seq_len, hidden_size)', memory_bank.shape)
         # encoder_state: (num_layers, batch_size=1, hidden_size)
         # memory_bank: (batch_size, seq_len, hidden_size)
 
-        decoder_state = self.model.decoder.init_decoder_state(encoder_state)
+        decoder_state = self.model.decoder.init_decoder_state(source_tensor, memory_bank, encoder_state)
+        # print('decoder_state src', decoder_state.src.shape)
+        # print('previous_input previous_input', decoder_state.previous_input)
+        # print('previous_input previous_layer_inputs ', decoder_state.previous_layer_inputs)
+
 
         # Repeat beam_size times
         memory_bank_beam = memory_bank.detach().repeat(self.beam_size, 1, 1)  # (beam_size, seq_len, hidden_size)
         memory_length_beam = source_length.repeat(self.beam_size)  # (beam_size, )
         decoder_state.repeat_beam_size_times(self.beam_size)
 
-        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=n_top, ranker=None)
+        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=n_candidates, ranker=None)
 
         for _ in range(self.max_length):
 
@@ -86,12 +95,13 @@ class OneSentenceGeneratorWithBeam:
             if beam.done():
                 break
 
-        scores, ks = beam.sort_finished(minimum=n_top)
+        scores, ks = beam.sort_finished(minimum=n_candidates)
         hypothesises, attentions = [], []
-        for i, (times, k) in enumerate(ks[:n_top]):
+        for i, (times, k) in enumerate(ks[:n_candidates]):
             hypothesis, attention = beam.get_hypothesis(times, k)
             hypothesises.append(hypothesis)
             attentions.append(attention)
 
-        hs = [[self.dictionary.idx2word[token_id] for token_id in h] for h in hypothesises]
-        return hs, attentions
+        self.attentions = attentions
+        hs = [self.postprocess(h) for h in hypothesises]
+        return hs

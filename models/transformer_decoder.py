@@ -64,7 +64,7 @@ class TransformerDecoderLayer(nn.Module):
             * all_input `[batch_size x current_step x model_dim]`
 
         """
-        print('inputs', inputs.shape)
+        # print('inputs', inputs.shape)
         dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(1), :tgt_pad_mask.size(1)], 0)
         input_norm = self.layer_norm_1(inputs)
         all_input = input_norm
@@ -72,8 +72,8 @@ class TransformerDecoderLayer(nn.Module):
             all_input = torch.cat((previous_input, input_norm), dim=1)
             dec_mask = None
 
-        print('all_input', all_input.shape)
-        print('dec_mask', dec_mask.shape)
+        # print('all_input', all_input.shape)
+        # print('dec_mask', dec_mask.shape)
         query, attn = self.self_attn(all_input, all_input, input_norm,
                                      mask=dec_mask,
                                      layer_cache=layer_cache,
@@ -82,8 +82,8 @@ class TransformerDecoderLayer(nn.Module):
         query = self.drop(query) + inputs
 
         query_norm = self.layer_norm_2(query)
-        print('memory_bank', memory_bank.shape)
-        print('query_norm', query_norm.shape)
+        # print('memory_bank', memory_bank.shape)
+        # print('query_norm', query_norm.shape)
         mid, attn = self.context_attn(memory_bank, memory_bank, query_norm,
                                       mask=src_pad_mask,
                                       layer_cache=layer_cache,
@@ -141,7 +141,7 @@ class TransformerDecoder(nn.Module):
        attn_type (str): if using a seperate copy attention
     """
 
-    def __init__(self, num_layers, d_model, heads, d_ff, dropout, embeddings):
+    def __init__(self, num_layers, d_model, heads, d_ff, dropout, embeddings, share_decoder_embeddings=True):
         super(TransformerDecoder, self).__init__()
 
         # Basic attributes.
@@ -156,6 +156,15 @@ class TransformerDecoder(nn.Module):
         # TransformerDecoder has its own attention mechanism.
         # Set up a separated copy attention layer, if needed.
         self.layer_norm = LayerNorm(d_model)
+
+        self.generator = nn.Sequential(
+            # nn.Linear(hidden_size, self.embeddings.num_embeddings),
+            # nn.Linear(d_model, self.embeddings.embedding_dim),
+            nn.Linear(self.embeddings.embedding_dim, self.embeddings.num_embeddings),
+            # nn.LogSoftmax(dim=-1)
+        )
+        if share_decoder_embeddings:
+            self.generator[0].weight = self.embeddings.weight
 
     def forward(self, tgt, memory_bank, state, memory_lengths=None,
                 step=None, cache=None):
@@ -177,15 +186,16 @@ class TransformerDecoder(nn.Module):
                 * attns: distribution over src at each tgt
                         `[tgt_len x batch x src_len]`.
         """
-        print('memory_bank', memory_bank.shape)
+        # print('memory_bank', memory_bank.shape)
+        # print('state cache', state.cache)
         src = state.src
         src_words = src
         tgt_words = tgt
-        print('hihi', src_words.size())
+        # print('hihi', src_words.size())
         src_batch, src_len = src_words.size()
 
         tgt_batch, tgt_len = tgt_words.size()
-        print('tgt_batch, tgt_len', tgt_batch, tgt_len)
+        # print('tgt_batch, tgt_len', tgt_batch, tgt_len)
 
         # Initialize return variables.
         outputs = []
@@ -209,6 +219,7 @@ class TransformerDecoder(nn.Module):
 
         for i in range(self.num_layers):
             prev_layer_input = None
+            # print('state.cache', state.cache)
             if state.cache is None:
                 if state.previous_input is not None:
                     prev_layer_input = state.previous_layer_inputs[i]
@@ -217,8 +228,7 @@ class TransformerDecoder(nn.Module):
                     output, src_memory_bank,
                     src_pad_mask, tgt_pad_mask,
                     previous_input=prev_layer_input,
-                    layer_cache=state.cache["layer_{}".format(i)]
-                    if state.cache is not None else None,
+                    layer_cache=state.cache["layer_{}".format(i)] if state.cache is not None else None,
                     step=step)
             if state.cache is None:
                 saved_inputs.append(all_input)
@@ -237,7 +247,9 @@ class TransformerDecoder(nn.Module):
         if state.cache is None:
             state = state.update_state(tgt, saved_inputs)
 
-        return outputs, state, attns
+        generated_outputs = self.generator(outputs)
+
+        return generated_outputs, state, attns
 
     def init_decoder_state(self, src, memory_bank, enc_hidden,
                            with_cache=False):
@@ -311,7 +323,7 @@ class TransformerDecoderState:
 
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
-        self.src = self.src.data.repeat(1, beam_size, 1)
+        self.src = self.src.data.repeat(beam_size, 1)
 
     def map_batch_fn(self, fn):
         def _recursive_map(struct, batch_dim=0):
@@ -325,3 +337,12 @@ class TransformerDecoderState:
         self.src = fn(self.src, 1)
         if self.cache is not None:
             _recursive_map(self.cache)
+
+    def beam_update(self, positions):
+        """ Need to document this """
+
+        for e in self._all:
+            if len(e.size()) == 4: # if previous_layer_inputs
+                e.data.copy_(e.data.index_select(1, positions))
+            else:
+                e.data.copy_(e.data.index_select(0, positions))

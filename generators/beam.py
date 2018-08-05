@@ -65,7 +65,8 @@ class Beam:
 
         self.prev_ks.append(prev_k)
         self.next_ys.append(next_y)
-        prev_attention = current_attention.index_select(dim=1, index=prev_k)  # (target_seq_len=1, beam_size, source_seq_len)
+        # for RNN, dim=1 and for transformer, dim=0.
+        prev_attention = current_attention.index_select(dim=0, index=prev_k)  # (target_seq_len=1, beam_size, source_seq_len)
         self.all_attentions.append(prev_attention)
 
 
@@ -92,7 +93,8 @@ class Beam:
         hypothesis, attentions = [], []
         for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
             hypothesis.append(self.next_ys[j + 1][k])
-            attentions.append(self.all_attentions[j][:, k, :])
+            # for RNN, [:, k, :], and for trnasformer, [k, :, :]
+            attentions.append(self.all_attentions[j][k, :, :])
             k = self.prev_ks[j][k]
         attentions_tensor = torch.stack(attentions[::-1]).squeeze(1)  # (timestep, source_seq_len)
         return hypothesis[::-1], attentions_tensor

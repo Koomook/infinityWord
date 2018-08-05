@@ -30,7 +30,7 @@ class TransformerEncoderLayer(nn.Module):
             heads, d_model, dropout=dropout)
         self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
         self.layer_norm = LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout_layer = nn.Dropout(dropout)
 
     def forward(self, inputs, mask):
         """
@@ -48,7 +48,7 @@ class TransformerEncoderLayer(nn.Module):
         input_norm = self.layer_norm(inputs)
         context, _ = self.self_attn(input_norm, input_norm, input_norm,
                                     mask=mask)
-        out = self.dropout(context) + inputs
+        out = self.dropout_layer(context) + inputs
         return self.feed_forward(out) + out
 
 
@@ -115,13 +115,13 @@ class TransformerEncoder(nn.Module):
         out = emb
         w_batch, w_len = src.size()
         padding_idx = PAD_TOEKN_ID  # self.embeddings.word_padding_idx
-        print('src', src.shape)
+        # print('src', src.shape)
         mask = src.data.eq(padding_idx).unsqueeze(1) \
             .expand(w_batch, w_len, w_len)
-        print('mask', mask.shape)
+        # print('mask', mask.shape)
         # Run the forward pass of every layer of the tranformer.
         for transformer_layer in self.transformer_layers:
             out = transformer_layer(out, mask)
         out = self.layer_norm(out)
 
-        return emb, out.transpose(0, 1).contiguous()
+        return emb, out  # .transpose(0, 1).contiguous()

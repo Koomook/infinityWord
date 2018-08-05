@@ -37,6 +37,9 @@ class Seq2SeqModel(nn.Module):
         """
 
         encoder_state, memory_bank = self.encoder(sources, source_lengths)
+        # print('encoder_state', encoder_state.shape)
+        # print('memory_bank', memory_bank.shape)
+        # print('sources', sources.shape)
         decoder_state = self.decoder.init_decoder_state(sources, memory_bank, encoder_state)
         decoder_outputs, decoder_state, attentions = self.decoder(inputs,
                                                                   memory_bank,
