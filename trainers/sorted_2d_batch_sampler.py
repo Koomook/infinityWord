@@ -1,5 +1,19 @@
 from collections import defaultdict
 import random
+from os.path import dirname, abspath, join, exists
+from os import makedirs
+import json
+from pymongo import MongoClient
+import pickle
+
+BASE_DIR = dirname(dirname(abspath(__file__)))
+MONGODB_CONFIG = json.load(open(join(BASE_DIR, 'datasets', 'mongodb_config.json')))
+CLIENT = MongoClient(host=MONGODB_CONFIG['host'],
+                     username=MONGODB_CONFIG['username'],
+                     password=MONGODB_CONFIG['password'],
+                     authSource=MONGODB_CONFIG['authSource'],
+                     authMechanism=MONGODB_CONFIG['authMechanism'])
+DB = CLIENT.get_database(MONGODB_CONFIG['database'])
 
 
 class FixedSizeClustering:
@@ -67,9 +81,9 @@ class FixedSizeClustering:
         return max_x, min_x, max_y, min_y
 
 
-class Sorted2DBatchSampler:
+class Sorted2DBatchSamplerOnTheFly:
 
-    def __init__(self, dataset, batch_size, drop_last=False, shuffle=True):
+    def __init__(self, dataset, batch_size, drop_last=False, max_length=100):
         if not isinstance(batch_size, int) or batch_size <= 0:
             raise ValueError("batch_size should be a positive integeral value, "
                              "but got batch_size={}".format(batch_size))
@@ -82,14 +96,18 @@ class Sorted2DBatchSampler:
 
         concat_source = lambda source: sum(source, [])
         datapoints = [(len(concat_source(source)), len(target))
-                      for source, target in self.dataset]
+                      for source, target in self.dataset
+                      if len(concat_source(source)) + len(target) < max_length] # filter out too long sentences
+        if len(datapoints) != len(self.dataset):
+            print('Filtered out {n} sentences'.format(n=len(self.dataset) - len(datapoints)))
+
         clustering = FixedSizeClustering(datapoints=datapoints,
                                          cluster_size=batch_size,
                                          drop_last=drop_last)
         self.clusters = clustering.find_clusters()
-        if shuffle:
-            random.seed(0)
-            random.shuffle(self.clusters)
+
+        random.seed(0)
+        random.shuffle(self.clusters)
 
     def __iter__(self):
         for cluster in self.clusters:
@@ -97,6 +115,61 @@ class Sorted2DBatchSampler:
 
     def __len__(self):
         return len(self.clusters)
+
+
+class Sorted2DBatchSampler:
+
+    def __init__(self, phase, version='v1'):
+
+        self.phase = phase
+        parameters_filepath = join(BASE_DIR, 'parameters', 'sorted_2d_batch_sampler', version, phase + '.pkl')
+        with open(parameters_filepath, 'rb') as file:
+            self.clusters = pickle.load(file)
+
+    def __iter__(self):
+        for cluster in self.clusters:
+            yield cluster
+
+    def __len__(self):
+        return len(self.clusters)
+
+    @staticmethod
+    def concat_source(source):
+        return sum(source, [])  # can be changed later
+
+    @staticmethod
+    def prepare_batch_sampler(phase, batch_size, drop_last=False, max_length=100, version='v1'):
+
+        collection = DB.get_collection('novels_sources_targets')
+        cursor = collection.find({'phase': phase})
+
+        datapoints = []
+        for document in cursor:
+            source_indexed = document['indexed']['source']
+            target_indexed = document['indexed']['target']
+            source_concated = Sorted2DBatchSampler.concat_source(source_indexed)
+
+            source_length = len(source_concated)
+            target_length = len(target_indexed)
+            if source_length + target_length > max_length:
+                print('A sentence filtered out from dataset')
+                continue   # filter out too long sentences
+
+            datapoints.append((source_length, target_length))
+
+        clustering = FixedSizeClustering(datapoints=datapoints,
+                                         cluster_size=batch_size,
+                                         drop_last=drop_last)
+        clusters = clustering.find_clusters()
+        random.seed(0)
+        random.shuffle(clusters)
+
+        parameters_dir = join(BASE_DIR, 'parameters', 'sorted_2d_batch_sampler', version)
+        if not exists(parameters_dir):
+            makedirs(parameters_dir)
+        parameters_filepath = join(parameters_dir, phase + '.pkl')
+        with open(parameters_filepath, 'wb') as file:
+            pickle.dump(clusters, file)
 
 
 if __name__ == '__main__':
@@ -115,6 +188,11 @@ if __name__ == '__main__':
     clustering = FixedSizeClustering(datapoints, cluster_size=3, drop_last=False)
     print(clustering.find_clusters())
 
+    Sorted2DBatchSampler.prepare_batch_sampler('train', batch_size=32, drop_last=False, max_length=100, version='v1')
+    Sorted2DBatchSampler.prepare_batch_sampler('val', batch_size=100, drop_last=False, max_length=100, version='v1')
+    Sorted2DBatchSampler.prepare_batch_sampler('test', batch_size=32, drop_last=False, max_length=100, version='v1')
+    batch_sampler = Sorted2DBatchSampler('train')
+    print(next(iter(batch_sampler)))
     # import pandas as pd
     # import numpy as np
     # from matplotlib import pyplot as plt
