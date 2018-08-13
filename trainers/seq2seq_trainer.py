@@ -38,21 +38,18 @@ class Seq2SeqTrainer:
 
         train_batch_losses = []
         train_batch_token_counts = []
-        for train_sources, train_inputs, train_targets, train_source_lengths, train_target_lengths in tqdm(self.train_dataloader):
+        for train_sources, train_inputs, train_targets in tqdm(self.train_dataloader):
             train_sources = train_sources.to(self.device)
             train_inputs = train_inputs.to(self.device)
             train_targets = train_targets.to(self.device)
-            train_source_lengths = train_source_lengths.to(self.device)
-            train_target_lengths = train_target_lengths.to(self.device)
 
-            train_decoder_outputs, train_decoder_state, train_attentions = self.model(train_sources, train_inputs, train_source_lengths)
+            train_decoder_outputs, train_decoder_state = self.model(train_sources, train_inputs)
 
             vocabulary_size = train_decoder_outputs.size(-1)
             train_outputs_flat = train_decoder_outputs.view(-1, vocabulary_size)
             train_targets_flat = train_targets.view(-1)
             train_batch_loss = self.loss_function(train_outputs_flat, train_targets_flat)
-            train_mask = self.sequence_mask(lengths=train_target_lengths)
-            train_batch_loss_masked = train_batch_loss.masked_fill(train_mask, 0)
+            train_batch_loss_masked = train_batch_loss.masked_fill(self.model.inputs_mask, 0)
             train_batch_loss_summed = train_batch_loss_masked.sum()
 
             self.optimizer.zero_grad()
