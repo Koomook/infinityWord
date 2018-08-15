@@ -31,7 +31,7 @@ class OneSeq2SeqDataset:
         return source, target
 
     def __len__(self):
-        return self.cursor.count()
+        return self.collection.estimated_document_count()
 
     def __iter__(self):
         self.cursor.rewind()
@@ -79,6 +79,7 @@ class Seq2SeqIndexedDataset:
 
         self.collection = DB.get_collection('novels_sources_targets')
         self.cursor = self.collection.find({'phase': phase}, limit=limit)
+        self.limit = limit
 
     def __getitem__(self, item):
         document = self.cursor[item]
@@ -95,7 +96,10 @@ class Seq2SeqIndexedDataset:
         self.cursor.rewind()
 
     def __len__(self):
-        return self.cursor.count()
+        if self.limit > 0:
+            return self.limit
+        else:
+            return self.collection.estimated_document_count()
 
     @staticmethod
     def prepare_dataset(dictionary):
