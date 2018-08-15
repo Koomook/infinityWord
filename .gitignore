@@ -3,9 +3,12 @@ sftp-config.json
 mongo-config.json
 slack-config.json
 datasets/mongodb_config.json
-lambda/env/
-lambda/lambdapack/
-lambda/pack.zip
+lambda/story-generator/env/
+lambda/story-tokenizer/env/
+lambda/story-generator/lambdapack/
+lambda/story-tokenizer/lambdapack/
+lambda/story-generator/pack.zip
+lambda/*/pack.zip
 
 .idea/
 
