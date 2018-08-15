@@ -59,9 +59,11 @@ class BaseDictionary:
             pickle.dump(parameters, file)
 
     @classmethod
-    def load(cls, save_name):
-        parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
-        parameters_filepath = join(parameters_dir, save_name)
+    def load(cls, save_name=None, parameters_filepath=None):
+
+        if save_name is not None:
+            parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
+            parameters_filepath = join(parameters_dir, save_name)
 
         with open(parameters_filepath, 'rb') as file:
             saved_parameters = pickle.load(file)
@@ -79,3 +81,14 @@ class BaseDictionary:
         parameters_dir = join(BASE_DIR, 'parameters', 'base_dictionary')
         parameters_filepath = join(parameters_dir, save_name)
         return exists(parameters_filepath)
+
+    def index_sentence(self, sentence):
+        sentence = [START_TOKEN] + sentence + [END_TOKEN]
+        return [self[word] for word in sentence]
+
+    def index_chapter(self, chapter):
+        chapter_indexed = []
+        for sentence in chapter:
+            sentence_indexed = self.index_sentence(sentence)
+            chapter_indexed.append(sentence_indexed)
+        return chapter_indexed

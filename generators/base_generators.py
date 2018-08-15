@@ -5,6 +5,8 @@ from .beam import Beam
 
 START_TOKEN = '<StartSent>'
 END_TOKEN = '<EndSent>'
+START_TOKEN_ID = 2
+END_TOKEN_ID = 3
 
 
 class OneSentenceGenerator:
@@ -41,7 +43,7 @@ class CandidatesTransformerGenerator:
 
     def __init__(self, model, preprocess, postprocess, checkpoint_filepath=None, max_length=30, beam_size=8):
         self.model = model
-        self.preprocess = preprocess  # lambda source: [dictionary[word] for word in sum([sentence.split() for sentence in source], [])]
+        self.preprocess = preprocess  # lambda source: [[dictionary[word] for word in sentence.split()] for sentence in source]
         self.postprocess = postprocess  # lambda h: ' '.join([self.dictionary.idx2word[token_id] for token_id in h])
         self.max_length = max_length
         self.beam_size = beam_size
@@ -52,11 +54,17 @@ class CandidatesTransformerGenerator:
         self.model.eval()
 
         self.attentions = None
+        self.source_preprocessed = None
 
-    def generate_candidates(self, source, n_candidates=5):
+    def generate_candidates(self, source, num_candidates=5, is_start=False):
 
-        source_preprocessed = self.preprocess(source)
-        source_tensor = torch.tensor([source_preprocessed])
+        if is_start:
+            self.source_preprocessed = self.preprocess(source)
+        else:
+            # source : [[2, 5, 9, 7, 5, 3], [2, 9, 5, 7, 3], [2, 5, 7, 8, 3], ...]
+            self.source_preprocessed = self.source
+        source_merged = sum(self.source_preprocessed, [])
+        source_tensor = torch.tensor([source_merged])
         # print('source_tensor', source_tensor.shape)
 
         sources_mask = self.model.pad_masking(source_tensor, source_tensor.size(1))
@@ -72,7 +80,7 @@ class CandidatesTransformerGenerator:
         # Repeat beam_size times
         memory_beam = memory.detach().repeat(self.beam_size, 1, 1)  # (beam_size, seq_len, hidden_size)
 
-        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=n_candidates, ranker=None)
+        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=num_candidates, ranker=None)
 
         for _ in range(self.max_length):
 
@@ -92,9 +100,9 @@ class CandidatesTransformerGenerator:
             if beam.done():
                 break
 
-        scores, ks = beam.sort_finished(minimum=n_candidates)
+        scores, ks = beam.sort_finished(minimum=num_candidates)
         hypothesises, attentions = [], []
-        for i, (times, k) in enumerate(ks[:n_candidates]):
+        for i, (times, k) in enumerate(ks[:num_candidates]):
             hypothesis, attention = beam.get_hypothesis(times, k)
             hypothesises.append(hypothesis)
             attentions.append(attention)
@@ -119,7 +127,7 @@ class CandidatesGenerator:
 
         self.attentions = None
 
-    def generate_candidates(self, source, n_candidates=5):
+    def generate_candidates(self, source, num_candidates=5):
 
         source_preprocessed = self.preprocess(source)
         source_tensor = torch.tensor([source_preprocessed])
@@ -142,7 +150,7 @@ class CandidatesGenerator:
         memory_length_beam = source_length.repeat(self.beam_size)  # (beam_size, )
         decoder_state.repeat_beam_size_times(self.beam_size)
 
-        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=n_candidates, ranker=None)
+        beam = Beam(beam_size=self.beam_size, min_length=0, n_top=num_candidates, ranker=None)
 
         for _ in range(self.max_length):
 
@@ -161,9 +169,9 @@ class CandidatesGenerator:
             if beam.done():
                 break
 
-        scores, ks = beam.sort_finished(minimum=n_candidates)
+        scores, ks = beam.sort_finished(minimum=num_candidates)
         hypothesises, attentions = [], []
-        for i, (times, k) in enumerate(ks[:n_candidates]):
+        for i, (times, k) in enumerate(ks[:num_candidates]):
             hypothesis, attention = beam.get_hypothesis(times, k)
             hypothesises.append(hypothesis)
             attentions.append(attention)

@@ -26,17 +26,8 @@ class ChaptersDataset:
                                            projection={'title': True, 'text.cleaned': True},
                                            limit=num_novels)
 
-        if phase == 'train':
-            train_chapters = db.get_collection('novels_train_chapters')
-            self.cursor = train_chapters.find()
-        elif phase == 'val':
-            val_chapters = db.get_collection('novels_val_chapters')
-            self.cursor = val_chapters.find()
-        elif phase == 'test':
-            test_chapters = db.get_collection('novels_test_chapters')
-            self.cursor = test_chapters.find()
-        else:
-            raise NotImplementedError()
+        collection = DB.get_collection('novels_chapters')
+        self.cursor = collection.find({'phase': phase})
 
     def __getitem__(self, index):
         chapter = self.cursor[index]
@@ -56,14 +47,8 @@ class ChaptersDataset:
         test_ratio = 0.1
         print(train_ratio + val_ratio + test_ratio)
 
-        train_chapters_collection = DB.get_collection('novels_train_chapters')
-        val_chapters_collection = DB.get_collection('novels_val_chapters')
-        test_chapters_collection = DB.get_collection('novels_test_chapters')
-
-        # Empty collections
-        train_chapters_collection.remove({})
-        val_chapters_collection.remove({})
-        test_chapters_collection.remove({})
+        chapters_collection = DB.get_collection('novels_chapters')
+        chapters_collection.drop()
 
         seed(0)
         for novel_index, novel in enumerate(cursor):
@@ -77,11 +62,16 @@ class ChaptersDataset:
 
                 random_number = random()
                 if random_number < train_ratio:
-                    train_chapters_collection.insert_one(chapter_document)
+                    chapter_document['phase'] = 'train'
+                    chapters_collection.insert_one(chapter_document)
                 elif random_number < train_ratio + val_ratio:
-                    val_chapters_collection.insert_one(chapter_document)
+                    chapter_document['phase'] = 'val'
+                    chapters_collection.insert_one(chapter_document)
                 else:
-                    test_chapters_collection.insert_one(chapter_document)
+                    chapter_document['phase'] = 'test'
+                    chapters_collection.insert_one(chapter_document)
+
+        cursor.close()
 
 
 class ChaptersDatasetOnTheFly:
@@ -129,35 +119,13 @@ class ChaptersDatasetOnTheFly:
         return len(self.chapter_locations)
 
 
-class ChaptersTokenizedDataset:
-
-    def __init__(self, phase):
-        self.source = ChaptersDataset(phase)
-
-    def __getitem__(self, index):
-        chapter = self.source[index]
-        chapter_tokenized = self.tokenize_chapter(chapter)
-        return chapter_tokenized
-
-    def __len__(self):
-        return len(self.source)
-
-    @staticmethod
-    def tokenize_chapter(chapter):
-        chapter_tokenized = []
-        for sentence in chapter:
-            sentence_tokenized = sentence.split()
-            chapter_tokenized.append(sentence_tokenized)
-        return chapter_tokenized
-
-
-class SentencesTokenizedDataset:
+class SentencesDataset:
 
     def __init__(self, phase):
 
         assert phase in ('train', 'val', 'test')
-        self.collection = DB.get_collection('novels_' + phase + '_sentences')
-        self.cursor = self.collection.find()
+        self.collection = DB.get_collection('novels_sentences')
+        self.cursor = self.collection.find({'phase': phase})
 
     def __getitem__(self, index):
         sentence_tokenized = self.cursor[index]
@@ -167,28 +135,106 @@ class SentencesTokenizedDataset:
         return self.collection.estimated_document_count()
 
     def __iter__(self):
-        self.cursor.rewind()
         for sentence_tokenized in self.cursor:
             yield sentence_tokenized['text']
+        self.cursor.rewind()
 
     @staticmethod
     def prepare_dataset():
 
-        for phase in ['train', 'val', 'test']:
-            source = DB.get_collection('novels_' + phase + '_chapters')
-            target = DB.get_collection('novels_' + phase + '_sentences')
-            target.remove({})
+        source = DB.get_collection('novels_chapters')
+        target = DB.get_collection('novels_sentences')
+        target.drop()
 
-            for chapter in tqdm(source.find()):
-                tokenized_chapter = ChaptersTokenizedDataset.tokenize_chapter(chapter['text'])
-                for sentence_index, sentence in enumerate(tokenized_chapter):
-                    sentence_document = {
-                        'novel_id': chapter['novel_id'],
-                        'chapter_index': chapter['chapter_index'],
-                        'sentence_index': sentence_index,
-                        'text': sentence
-                    }
-                    target.insert_one(sentence_document)
+        cursor = source.find().batch_size(10)
+        for chapter in tqdm(cursor):
+            chapter_text = chapter['text']
+            for sentence_index, sentence in enumerate(chapter_text):
+                sentence_document = {
+                    'novel_id': chapter['novel_id'],
+                    'chapter_index': chapter['chapter_index'],
+                    'sentence_index': sentence_index,
+                    'text': sentence,
+                    'phase': chapter['phase']
+                }
+                target.insert_one(sentence_document)
+
+        cursor.close()
+
+
+class ChaptersTokenizedDataset:
+
+    def __init__(self, phase):
+        self.collection = DB.get_collection('novels_chapters')
+        self.cursor = self.collection.find({'phase':phase})
+
+    def __getitem__(self, index):
+        chapter = self.cursor[index]
+        return chapter['text_tokenized']
+
+    def __len__(self):
+        return self.collection.estimated_document_count()
+
+    @staticmethod
+    def prepare_dataset(tokenizer=None):
+        source = DB.get_collection('novels_chapters')
+        cursor = source.find({}).batch_size(10)
+        for chapter in tqdm(cursor):
+            chapter_text = chapter['text']
+            if tokenizer is not None:
+                chapter_tokenized = tokenizer.tokenize_chapter(chapter_text)
+            else:
+                chapter_tokenized = [sentence.split() for sentence in chapter_text]
+            chapter_document_update = {
+                "$set": {
+                    'text_tokenized': chapter_tokenized
+                }
+            }
+            source.update_one({'_id': chapter['_id']}, chapter_document_update)
+        cursor.close()
+
+
+class SentencesTokenizedDataset:
+
+    def __init__(self, phase):
+
+        assert phase in ('train', 'val', 'test')
+        self.collection = DB.get_collection('novels_sentences')
+        self.cursor = self.collection.find({'phase': phase})
+
+    def __getitem__(self, index):
+        sentence_tokenized = self.cursor[index]
+        return sentence_tokenized['text_tokenized']
+
+    def __len__(self):
+        return self.collection.estimated_document_count()
+
+    def __iter__(self):
+        for sentence_tokenized in self.cursor:
+            yield sentence_tokenized['text_tokenized']
+        self.cursor.rewind()
+
+
+    @staticmethod
+    def prepare_dataset():
+        source = DB.get_collection('novels_chapters')
+        target = DB.get_collection('novels_sentences')
+        target.drop()
+
+        cursor = source.find().batch_size(10)
+        for chapter in tqdm(cursor):
+
+            for sentence_index, (sentence, sentence_tokenized) in enumerate(zip(chapter['text'], chapter['text_tokenized'])):
+                sentence_document = {
+                    'novel_id': chapter['novel_id'],
+                    'chapter_index': chapter['chapter_index'],
+                    'sentence_index': sentence_index,
+                    'text': sentence,
+                    'text_tokenized': sentence_tokenized,
+                    'phase': chapter['phase']
+                }
+                target.insert_one(sentence_document)
+        cursor.close()
 
 
 class SentencesTokenizedDatasetOnTheFly:
@@ -234,14 +280,14 @@ class InputTargetIndexedDataset:
 
     def __init__(self, phase):
 
-        self.collection = DB.get_collection('novels_' + phase + '_sentences_indexed')
-        self.cursor = self.collection.find()
+        self.collection = DB.get_collection('novels_sentences')
+        self.cursor = self.collection.find({'phase': phase})
 
     def __getitem__(self, item):
         document = self.cursor[item]
-        inputs_indexed = document['inputs']
-        targets_indexed = document['targets']
-        return inputs_indexed, targets_indexed
+        input_indexed = document['input_target_indexed']['input']
+        target_indexed = document['input_target_indexed']['target']
+        return input_indexed, target_indexed
 
     def __len__(self):
         return self.collection.estimated_document_count()
@@ -249,27 +295,22 @@ class InputTargetIndexedDataset:
     @staticmethod
     def prepare_dataset(dictionary):
 
-        for phase in ['train', 'val', 'test']:
-            source = DB.get_collection('novels_' + phase + '_sentences')
-            target = DB.get_collection('novels_' + phase + '_sentences_indexed')
-            target.remove({})
-
-            for sentence in tqdm(source.find()):
-                inputs, targets = InputTargetDataset.process(sentence['text'])
-                inputs_indexed = InputTargetIndexedDataset.index_sentence(inputs, dictionary)
-                targets_indexed = InputTargetIndexedDataset.index_sentence(targets, dictionary)
-                sentence_document = {
-                    'novel_id': sentence['novel_id'],
-                    'chapter_index': sentence['chapter_index'],
-                    'sentence_index': sentence['sentence_index'],
-                    'inputs': inputs_indexed,
-                    'targets': targets_indexed
+        source = DB.get_collection('novels_sentences')
+        cursor = source.find().batch_size(10)
+        for sentence in tqdm(cursor):
+            inputs, targets = InputTargetDataset.process(sentence['text_tokenized'])
+            inputs_indexed = dictionary.index_sentence(inputs)
+            targets_indexed = dictionary.index_sentence(targets)
+            sentence_document_update = {
+                "$set": {
+                    'input_target_indexed': {
+                        'input': inputs_indexed,
+                        'target': targets_indexed
+                    }
                 }
-                target.insert_one(sentence_document)
-
-    @staticmethod
-    def index_sentence(sentence, dictionary):
-        return [dictionary[word] for word in sentence]
+            }
+            source.update_one({'_id': sentence['_id']}, sentence_document_update)
+        cursor.close()
 
 
 class InputTargetIndexedDatasetOnTheFly:
@@ -287,38 +328,3 @@ class InputTargetIndexedDatasetOnTheFly:
 
     def __len__(self):
         return len(self.source)
-
-
-if __name__ == '__main__':
-
-    from datetime import datetime
-    start_time = datetime.now()
-
-    ChaptersDataset.prepare_dataset(num_novels=2)
-
-    chapters_dataset = ChaptersDataset(phase='train')
-    print('chapters_dataset', chapters_dataset[0])
-
-    SentencesTokenizedDataset.prepare_dataset()
-    sentences_dataset = SentencesTokenizedDataset(phase='train')
-    print('sentences_dataset', sentences_dataset[0])
-
-    from os.path import dirname, abspath
-    import sys
-    BASE_DIR = dirname(dirname(abspath(__file__)))
-    sys.path.append(BASE_DIR)
-
-    from dictionaries import BaseDictionary
-
-    dictionary = BaseDictionary()
-    dictionary.prepare_dictionary(sentences_dataset)
-    dictionary.save('base_dictionary')
-
-    InputTargetIndexedDataset.prepare_dataset(dictionary=dictionary)
-    input_target_indexed_dataset = InputTargetIndexedDataset(phase='val')
-    print('input_target_indexed_dataset', input_target_indexed_dataset[0])
-
-    end_time = datetime.now()
-    print('start_time', start_time)
-    print('end_time', end_time)
-    print('took', end_time - start_time)
