@@ -22,7 +22,7 @@ BEAM_SIZE = 8
 NUM_CANDIDATES = 5
 
 tokenizer = SoyTokenizer(args.tokenizer)
-dictionary = BaseDictionary.load(save_name=args.dictionary)
+dictionary = BaseDictionary.load(parameters_filepath=args.dictionary)
 
 embedding = torch.nn.Embedding(num_embeddings=dictionary.vocabulary_size, embedding_dim=D_MODEL)
 
