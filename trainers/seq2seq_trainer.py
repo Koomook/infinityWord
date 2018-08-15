@@ -48,7 +48,7 @@ class Seq2SeqTrainer:
             outputs_flat = outputs.view(-1, vocabulary_size)
             targets_flat = targets.view(-1)
             batch_loss = self.loss_function(outputs_flat, targets_flat)
-            loss_mask = self.sequence_mask(target_lengths)
+            loss_mask = self.sequence_mask(target_lengths).to(self.device)
             batch_loss_masked = batch_loss.masked_fill(loss_mask, 0)
             batch_loss_summed = batch_loss_masked.sum()
 
