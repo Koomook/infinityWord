@@ -75,10 +75,10 @@ class OneSeq2SeqDataset:
 
 class Seq2SeqIndexedDataset:
 
-    def __init__(self, phase):
+    def __init__(self, phase, limit=0):
 
         self.collection = DB.get_collection('novels_sources_targets')
-        self.cursor = self.collection.find({'phase': phase})
+        self.cursor = self.collection.find({'phase': phase}, limit=limit)
 
     def __getitem__(self, item):
         document = self.cursor[item]
