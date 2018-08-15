@@ -33,93 +33,64 @@ class Seq2SeqTrainer:
 
         self.start_time = datetime.now()
 
-    def train(self, epoch):
-        self.model.train()
+    def run_epoch(self, dataloader, mode='train'):
 
-        train_batch_losses = []
-        train_batch_token_counts = []
-        for train_sources, train_inputs, train_targets in tqdm(self.train_dataloader):
-            train_sources = train_sources.to(self.device)
-            train_inputs = train_inputs.to(self.device)
-            train_targets = train_targets.to(self.device)
+        batch_losses = []
+        batch_token_counts = []
+        for sources, inputs, targets, source_lengths, target_lengths in tqdm(dataloader):
+            sources = sources.to(self.device)
+            inputs = inputs.to(self.device)
+            targets = targets.to(self.device)
 
-            train_decoder_outputs, train_decoder_state = self.model(train_sources, train_inputs)
+            outputs = self.model(sources, inputs)
 
-            vocabulary_size = train_decoder_outputs.size(-1)
-            train_outputs_flat = train_decoder_outputs.view(-1, vocabulary_size)
-            train_targets_flat = train_targets.view(-1)
-            train_batch_loss = self.loss_function(train_outputs_flat, train_targets_flat)
-            train_batch_loss_masked = train_batch_loss.masked_fill(self.model.inputs_mask, 0)
-            train_batch_loss_summed = train_batch_loss_masked.sum()
+            vocabulary_size = outputs.size(-1)
+            outputs_flat = outputs.view(-1, vocabulary_size)
+            targets_flat = targets.view(-1)
+            batch_loss = self.loss_function(outputs_flat, targets_flat)
+            loss_mask = self.sequence_mask(target_lengths)
+            batch_loss_masked = batch_loss.masked_fill(loss_mask, 0)
+            batch_loss_summed = batch_loss_masked.sum()
 
-            self.optimizer.zero_grad()
-            train_batch_loss_summed.backward()
-            self.optimizer.step()
+            if mode == 'train':
+                self.optimizer.zero_grad()
+                batch_loss_summed.backward()
+                self.optimizer.step()
 
-            train_batch_losses.append(train_batch_loss_summed.item())
-            train_batch_token_count = train_target_lengths.sum().item()
-            train_batch_token_counts.append(train_batch_token_count)
+            batch_losses.append(batch_loss_summed.item())
+            batch_token_count = self.model.inputs_mask.sum().item()
+            batch_token_counts.append(batch_token_count)
 
             if self.epoch == 0:  # for debugging
                 break
 
-        train_token_counts = sum(train_batch_token_counts)
-        train_epoch_loss_per_token = sum(train_batch_losses) / train_token_counts
+        token_counts = sum(batch_token_counts)
+        epoch_loss_per_token = sum(batch_losses) / token_counts
 
-        if epoch % self.print_every == 0:
-            self.model.eval()
-            val_batch_losses = []
-            val_batch_token_counts = []
-            for val_sources, val_inputs, val_targets, val_source_lengths, val_target_lengths in self.val_dataloader:
-                val_sources = val_sources.to(self.device)
-                val_inputs = val_inputs.to(self.device)
-                val_targets = val_targets.to(self.device)
-                val_source_lengths = val_source_lengths.to(self.device)
-                val_target_lengths = val_target_lengths.to(self.device)
-                
-                val_decoder_outputs, val_decoder_state, val_attentions = self.model(val_sources, val_inputs,
-                                                                                    val_source_lengths)
-
-                vocabulary_size = val_decoder_outputs.size(-1)
-                val_outputs_flat = val_decoder_outputs.view(-1, vocabulary_size)
-                val_targets_flat = val_targets.view(-1)
-                val_batch_loss = self.loss_function(val_outputs_flat, val_targets_flat)
-
-                val_mask = self.sequence_mask(lengths=val_target_lengths)
-                val_batch_loss_masked = val_batch_loss.masked_fill(val_mask, 0)
-                val_batch_loss_summed = val_batch_loss_masked.sum()
-
-                val_batch_losses.append(val_batch_loss_summed.item())
-                val_batch_token_count = val_target_lengths.sum().item()
-                val_batch_token_counts.append(val_batch_token_count)
-
-            val_token_counts = sum(val_batch_token_counts)
-            val_epoch_loss_per_token = sum(val_batch_losses) / val_token_counts
-        else:
-            val_epoch_loss_per_token = None
-
-        return train_epoch_loss_per_token, val_epoch_loss_per_token
+        return epoch_loss_per_token
 
     def run(self, epochs=10):
 
         for epoch in range(self.epoch, epochs + 1):
             self.epoch = epoch
 
-            train_epoch_loss_per_token, val_epoch_loss_per_token = self.train(epoch)
+            self.model.train()
+            train_epoch_loss_per_token = self.run_epoch(self.train_dataloader, mode='train')
+
+            self.model.eval()
+            val_epoch_loss_per_token = self.run_epoch(self.val_dataloader, mode='val')
 
             self.train_epoch_losses.append(train_epoch_loss_per_token)
             self.val_epoch_losses.append(val_epoch_loss_per_token)
 
-            train_epoch_perplexity = self._calculate_perplexity(train_epoch_loss_per_token)
-            val_epoch_perplexity = self._calculate_perplexity(val_epoch_loss_per_token)
-
             if epoch % self.print_every == 0 and self.logger:
+                train_epoch_perplexity = self._calculate_perplexity(train_epoch_loss_per_token)
+                val_epoch_perplexity = self._calculate_perplexity(val_epoch_loss_per_token)
+
                 self._leave_log(train_epoch_loss_per_token, val_epoch_loss_per_token,
                                 train_epoch_perplexity, val_epoch_perplexity, progress=epoch / epochs)
 
             if epoch % self.save_every == 0:
-                if self.logger:
-                    self.logger.info("Saving the model...")
                 self._save_model()
 
     @staticmethod
@@ -171,9 +142,9 @@ class Seq2SeqTrainer:
         if not exists(checkpoint_dir):
             os.mkdir(checkpoint_dir)
 
-        base_filename = '{model_name}_{epoch}_{start_time}.pth'
-        checkpoint_filename = base_filename.format(model_name=self.save_name,
-                                                   start_time=self.start_time,
+        base_filename = '{save_name}_{epoch}_{start_time}.pth'
+        checkpoint_filename = base_filename.format(save_name=self.save_name,
+                                                   start_time=self.start_time.strftime("%Y-%m-%d-%H:%M:%S"),
                                                    epoch=self.epoch)
         checkpoint_filepath = join(checkpoint_dir, checkpoint_filename)
 
@@ -181,6 +152,10 @@ class Seq2SeqTrainer:
         self.last_checkpoint_filepath = checkpoint_filepath
         if min(self.val_epoch_losses) == self.val_epoch_losses[-1]:  # if last run is the best
             self.best_checkpoint_filepath = checkpoint_filepath
+
+        if self.logger:
+            self.logger.info("Saved model to {}".format(checkpoint_filepath))
+            self.logger.info("Current best model is {}".format(self.best_checkpoint_filepath))
 
 
 def seq2seq_collate_fn(batch):
@@ -207,6 +182,8 @@ def seq2seq_collate_fn(batch):
 
     inputs_tensor = targets_tensor[:, :-1].contiguous()
     targets_tensor = targets_tensor[:, 1:].contiguous()
-    target_lengths = torch.tensor(target_lengths) - 1  # - 1 for inputs / targets split
 
-    return sources_tensor, inputs_tensor, targets_tensor, torch.tensor(source_lengths), target_lengths
+    source_lengths_tensor = torch.tensor(source_lengths)
+    target_lengths_tensor = torch.tensor(target_lengths) - 1  # - 1 for inputs / targets split
+
+    return sources_tensor, inputs_tensor, targets_tensor, source_lengths_tensor, target_lengths_tensor
