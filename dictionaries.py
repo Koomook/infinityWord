@@ -24,7 +24,7 @@ class BaseDictionary:
         except KeyError:
             return self.word2idx[UNK_TOKEN]
 
-    def prepare_dictionary(self, dataset, vocabulary_size=None):
+    def prepare_dictionary(self, dataset, vocabulary_size=None, min_count=None):
 
         counter = Counter()
         for sentence in tqdm(dataset):
@@ -34,6 +34,9 @@ class BaseDictionary:
         if vocabulary_size:
             counter = {word: freq for word, freq in
                        counter.most_common(vocabulary_size - 2)}  # - 2 for pad and unk
+        if min_count is not None:
+            counter = {word: freq for word, freq in counter.items()
+                       if freq >= min_count}
 
         vocab_words = [PAD_TOKEN, UNK_TOKEN, START_TOKEN, END_TOKEN] + list(sorted(counter.keys()))
 

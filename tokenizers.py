@@ -36,7 +36,7 @@ class SoyTokenizer:
         words = word_extractor.extract()
 
         scores = {word: score.cohesion_forward * math.exp(score.right_branching_entropy) for word, score in words.items()}
-        print('scores', scores)
+
         with open(join(params_dir, 'scores.pkl'), 'wb') as file:
             pickle.dump(scores, file)
 

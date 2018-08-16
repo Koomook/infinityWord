@@ -45,32 +45,32 @@ class OneSeq2SeqDataset:
 
         source_collection = DB.get_collection('novels_chapters')
         target_collection = DB.get_collection('novels_sources_targets')
-        target_collection.remove({})
-        for phase in ['train', 'val', 'test']:
+        target_collection.drop()
 
-            for chapter in tqdm(source_collection.find({'phase': phase})):
-                tokenized_chapter = chapter['text_tokenized']
-                if len(tokenized_chapter) <= source_length:
-                    continue
+        cursor = source_collection.find().batch_size(70)
+        for chapter in tqdm(cursor):
+            tokenized_chapter = chapter['text_tokenized']
+            if len(tokenized_chapter) <= source_length:
+                continue
 
-                source = []
-                for sentence_index, sentence in enumerate(tokenized_chapter):
-                    if len(source) == source_length:
-                        sentence_document = {
-                            'phase': phase,
-                            'novel_id': chapter['novel_id'],
-                            'chapter_index': chapter['chapter_index'],
-                            'target_sentence_index': sentence_index,
-                            'text': {
-                                'source': source,
-                                'target': sentence
-                            }
+            source = []
+            for sentence_index, sentence in enumerate(tokenized_chapter):
+                if len(source) == source_length:
+                    sentence_document = {
+                        'phase': chapter['phase'],
+                        'novel_id': chapter['novel_id'],
+                        'chapter_index': chapter['chapter_index'],
+                        'target_sentence_index': sentence_index,
+                        'text': {
+                            'source': source,
+                            'target': sentence
                         }
-                        target_collection.insert_one(sentence_document)
-                        source = source[1:]
-                        source.append(sentence)
-                    else:
-                        source.append(sentence)
+                    }
+                    target_collection.insert_one(sentence_document)
+                    source = source[1:]
+                    source.append(sentence)
+                else:
+                    source.append(sentence)
 
 
 class Seq2SeqIndexedDataset:

@@ -146,7 +146,7 @@ class SentencesDataset:
         target = DB.get_collection('novels_sentences')
         target.drop()
 
-        cursor = source.find().batch_size(10)
+        cursor = source.find().batch_size(70)
         for chapter in tqdm(cursor):
             chapter_text = chapter['text']
             for sentence_index, sentence in enumerate(chapter_text):
@@ -178,7 +178,7 @@ class ChaptersTokenizedDataset:
     @staticmethod
     def prepare_dataset(tokenizer=None):
         source = DB.get_collection('novels_chapters')
-        cursor = source.find({}).batch_size(10)
+        cursor = source.find({}).batch_size(70)
         for chapter in tqdm(cursor):
             chapter_text = chapter['text']
             if tokenizer is not None:
@@ -221,7 +221,7 @@ class SentencesTokenizedDataset:
         target = DB.get_collection('novels_sentences')
         target.drop()
 
-        cursor = source.find().batch_size(10)
+        cursor = source.find().batch_size(70)
         for chapter in tqdm(cursor):
 
             for sentence_index, (sentence, sentence_tokenized) in enumerate(zip(chapter['text'], chapter['text_tokenized'])):
@@ -296,7 +296,7 @@ class InputTargetIndexedDataset:
     def prepare_dataset(dictionary):
 
         source = DB.get_collection('novels_sentences')
-        cursor = source.find().batch_size(10)
+        cursor = source.find().batch_size(100)
         for sentence in tqdm(cursor):
             inputs, targets = InputTargetDataset.process(sentence['text_tokenized'])
             inputs_indexed = dictionary.index_sentence(inputs)
