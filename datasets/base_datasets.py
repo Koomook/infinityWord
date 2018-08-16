@@ -132,7 +132,7 @@ class SentencesDataset:
         return sentence_tokenized['text']
 
     def __len__(self):
-        return self.collection.estimated_document_count()
+        return self.cursor.count()
 
     def __iter__(self):
         for sentence_tokenized in self.cursor:
@@ -173,7 +173,7 @@ class ChaptersTokenizedDataset:
         return chapter['text_tokenized']
 
     def __len__(self):
-        return self.collection.estimated_document_count()
+        return self.cursor.count()
 
     @staticmethod
     def prepare_dataset(tokenizer=None):
@@ -207,7 +207,7 @@ class SentencesTokenizedDataset:
         return sentence_tokenized['text_tokenized']
 
     def __len__(self):
-        return self.collection.estimated_document_count()
+        return self.cursor.count()
 
     def __iter__(self):
         for sentence_tokenized in self.cursor:
@@ -290,7 +290,7 @@ class InputTargetIndexedDataset:
         return input_indexed, target_indexed
 
     def __len__(self):
-        return self.collection.estimated_document_count()
+        return self.cursor.count()
 
     @staticmethod
     def prepare_dataset(dictionary):

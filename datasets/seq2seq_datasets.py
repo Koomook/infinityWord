@@ -31,7 +31,7 @@ class OneSeq2SeqDataset:
         return source, target
 
     def __len__(self):
-        return self.collection.estimated_document_count()
+        return self.cursor.count()
 
     def __iter__(self):
         self.cursor.rewind()
@@ -99,7 +99,7 @@ class Seq2SeqIndexedDataset:
         if self.limit > 0:
             return self.limit
         else:
-            return self.collection.estimated_document_count()
+            return self.cursor.count()
 
     @staticmethod
     def prepare_dataset(dictionary):
