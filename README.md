@@ -1,1 +1,1 @@
-# infinityWrd
+# infinityWord
